@@ -1,0 +1,177 @@
+---
+title: 'Google Platform Features: Search, APIs, and Webhooks'
+sidebarTitle: 'Key Features'
+description: "Explore Google's core feature areas — Search, User Management, Resources, Webhooks, and Configuration — and learn how to put each one to work."
+---
+
+Google's platform is built around a set of well-defined feature areas, each designed to solve a specific class of problem while integrating cleanly with the rest of the ecosystem. Before writing a single line of integration code, take a few minutes to understand what each feature area offers, how it is scoped, and where its limits lie. The sections below walk through every major capability and include practical examples to help you get started quickly.
+
+## Search API
+
+The Search API gives you programmatic access to Google's index across web content, images, videos, and connected data sources. You submit a structured query, specify filters and ranking signals, and receive a paginated list of results ranked by relevance. The API supports natural-language queries, Boolean operators, field-level filters, and safe-search controls.
+
+Results include a relevance score, a snippet of matching content, and structured metadata where available. For Google Workspace deployments, you can also scope queries to Drive files, Gmail threads, or Calendar events owned by a specific user.
+
+```http title="Search Request"
+GET https://www.googleapis.com/customsearch/v1
+  ?key=YOUR_API_KEY
+  &cx=YOUR_SEARCH_ENGINE_ID
+  &q=platform+architecture
+  &num=10
+  &start=1
+```
+
+```json title="Search Response (truncated)"
+{
+  "kind": "customsearch#search",
+  "queries": {
+    "request": [{ "totalResults": "1420000", "count": 10, "startIndex": 1 }]
+  },
+  "items": [
+    {
+      "title": "Platform Architecture Overview",
+      "link": "https://example.com/architecture",
+      "snippet": "A comprehensive guide to platform architecture...",
+      "pagemap": { "metatags": [{ "og:type": "article" }] }
+    }
+  ]
+}
+```
+
+<Tip>
+  Use the `fields` query parameter to request only the response properties your application needs. Smaller payloads reduce latency and count against quota more efficiently — for example, `fields=items(title,link,snippet)` strips everything except the three most commonly used fields.
+</Tip>
+
+## User Management
+
+The User Management API lets you create, read, update, and deactivate user accounts within your Google Workspace domain. Each user is uniquely identified by a stable `userId` (a UUID) and a primary email address. You can manage profile attributes, group memberships, administrative roles, and two-factor authentication settings entirely through the API.
+
+User operations are scoped to your domain — you cannot read or modify users outside the domain your service account is authorized for. Changes propagate to all Google services within seconds; there is no manual sync step.
+
+```python title="Create a User (Python)"
+from googleapiclient.discovery import build
+from google.oauth2 import service_account
+
+SCOPES = ["https://www.googleapis.com/auth/admin.directory.user"]
+credentials = service_account.Credentials.from_service_account_file(
+    "service_account.json", scopes=SCOPES
+)
+service = build("admin", "directory_v1", credentials=credentials)
+
+new_user = {
+    "primaryEmail": "ada.lovelace@example.com",
+    "name": {"givenName": "Ada", "familyName": "Lovelace"},
+    "password": "TemporaryPass123!",
+    "changePasswordAtNextLogin": True,
+}
+
+result = service.users().insert(body=new_user).execute()
+print(f"User created: {result['id']}")
+```
+
+<Note>
+  User creation requires the `https://www.googleapis.com/auth/admin.directory.user` scope and a service account with domain-wide delegation enabled. Grant delegation in the Google Admin console under **Security → API controls → Domain-wide delegation**.
+</Note>
+
+## Resource Management
+
+Resources are the primary objects your users create and store across Google services — Drive files, Calendar events, Docs, Sheets, and so on. The Resource Management API provides a unified interface for listing, reading, creating, updating, and deleting resources regardless of which service owns them. Every resource carries a globally unique `resourceId`, a MIME type, a set of permission bindings, and a modification timestamp.
+
+Permissions follow an inheritance model: a folder's permissions propagate to its children unless explicitly overridden. When you transfer ownership or revoke access, the change cascades automatically. Resources also support labels, which are arbitrary key-value pairs you can use to organize and filter objects in bulk queries.
+
+```javascript title="List Drive Files (Node.js)"
+const { google } = require("googleapis");
+
+async function listFiles(auth) {
+  const drive = google.drive({ version: "v3", auth });
+  const response = await drive.files.list({
+    pageSize: 25,
+    fields: "nextPageToken, files(id, name, mimeType, modifiedTime)",
+    q: "trashed = false and 'me' in owners",
+    orderBy: "modifiedTime desc",
+  });
+
+  const files = response.data.files;
+  files.forEach((file) => {
+    console.log(`${file.name} (${file.id}) — ${file.mimeType}`);
+  });
+
+  return response.data.nextPageToken; // pass to next call for pagination
+}
+```
+
+<Tip>
+  Always paginate Drive list calls using `nextPageToken`. A domain with thousands of files will return partial results on the first call — iterating tokens until none is returned guarantees a complete listing.
+</Tip>
+
+## Webhooks & Events
+
+Google's push notification system lets your application receive real-time updates when resources change, instead of polling the API on a schedule. You register a webhook by creating a **watch** on a specific resource or collection, providing a publicly accessible HTTPS endpoint. Google sends a `POST` request to that endpoint each time a matching event occurs.
+
+Each notification payload includes a `resourceId`, a `resourceState` (e.g., `change`, `sync`, `exists`), and a `channelId` that ties the notification back to your watch registration. Watches have a finite expiration time (typically seven days); your application must renew them before they expire to avoid missing events.
+
+```json title="Webhook Notification Payload"
+{
+  "kind": "api#channel",
+  "id": "channel-abc-123",
+  "resourceId": "o3hgv1538sdjfh",
+  "resourceUri": "https://www.googleapis.com/drive/v3/files/o3hgv1538sdjfh",
+  "token": "your-verification-token",
+  "expiration": "1698350400000",
+  "type": "web_hook",
+  "address": "https://your-app.example.com/webhooks/google",
+  "payload": true,
+  "params": { "ttl": "604800" }
+}
+```
+
+```http title="Register a Watch"
+POST https://www.googleapis.com/drive/v3/files/watch
+Authorization: Bearer ACCESS_TOKEN
+Content-Type: application/json
+
+{
+  "id": "channel-abc-123",
+  "type": "web_hook",
+  "address": "https://your-app.example.com/webhooks/google",
+  "token": "your-verification-token",
+  "expiration": 1698350400000
+}
+```
+
+<Warning>
+  Webhook endpoints must respond with HTTP `200 OK` within five seconds. If Google receives a non-2xx response or the connection times out, it retries with exponential back-off. Process the notification asynchronously — acknowledge receipt immediately, then handle business logic in a background job.
+</Warning>
+
+## Configuration
+
+The Configuration API controls project-level settings: API key management, OAuth client configuration, service enablement, quota overrides, and audit log destinations. Every setting is version-controlled in Google Cloud's configuration store, and all changes emit an audit event to Cloud Audit Logs with the identity of the principal who made the change.
+
+You can manage configuration programmatically using the Cloud Resource Manager API or the `gcloud` CLI, making it easy to codify your infrastructure settings and apply them consistently across development, staging, and production projects.
+
+```bash title="Enable an API with gcloud"
+# Enable the Custom Search API for your project
+gcloud services enable customsearch.googleapis.com \
+  --project=my-production-project
+
+# Verify the API is enabled
+gcloud services list --enabled \
+  --project=my-production-project \
+  --filter="name:customsearch"
+```
+
+```bash title="Create and Restrict an API Key"
+# Create a new API key
+gcloud alpha services api-keys create \
+  --display-name="Production Search Key" \
+  --project=my-production-project
+
+# Restrict the key to the Custom Search API only
+gcloud alpha services api-keys update KEY_ID \
+  --api-target=service=customsearch.googleapis.com \
+  --project=my-production-project
+```
+
+<Note>
+  Always restrict API keys to the minimum set of APIs and, where possible, to specific HTTP referrers or server IP addresses. Unrestricted keys are a significant security risk — rotate any key immediately if you suspect it has been exposed.
+</Note>

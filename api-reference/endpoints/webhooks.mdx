@@ -1,0 +1,326 @@
+---
+title: "Google Workspace Webhooks Management API Reference"
+sidebarTitle: "Webhooks"
+description: "Register and remove webhook endpoints to receive real-time event notifications from your Google workspace, with payload schemas and signature verification."
+---
+
+The Webhooks API lets you manage event-driven integrations entirely through code. Instead of manually configuring notification endpoints in the Google console, you can use these endpoints to register webhook URLs and remove them as part of automated deployments or infrastructure-as-code workflows. Every webhook you register will receive HTTP POST requests from Google whenever a subscribed event occurs in your workspace. For a full explanation of the event model and delivery guarantees, see the [Webhooks guide](/guides/webhooks).
+
+---
+
+## POST /v1/webhooks
+
+Register a new webhook endpoint to start receiving real-time event notifications. Google generates a unique signing secret for each webhook — store it securely and use it to verify the authenticity of every incoming payload.
+
+### Body Parameters
+
+<ParamField body="url" type="string" required>
+  The HTTPS URL of your endpoint that will receive event payloads. Must use `https://` — plain HTTP endpoints are rejected.
+</ParamField>
+
+<ParamField body="events" type="array" required>
+  Array of event type strings to subscribe to. Use `["*"]` to subscribe to all events. See the [Webhooks guide](/guides/webhooks) for the full event type catalog.
+
+  **Common values:**
+  - `resource.created` — a new resource was created
+  - `resource.updated` — a resource was modified
+  - `resource.deleted` — a resource was deleted
+  - `user.created` — a new user was added
+  - `user.updated` — a user's profile or role changed
+  - `user.deleted` — a user was removed
+</ParamField>
+
+<ParamField body="description" type="string">
+  A human-readable label for this webhook to help you identify it in listings and logs.
+</ParamField>
+
+<ParamField body="metadata" type="object">
+  Optional key-value pairs for your own tracking purposes.
+</ParamField>
+
+### Request
+
+```bash title="Register a Webhook"
+curl --request POST \
+  --url 'https://api.google.com/v1/webhooks' \
+  --header 'Authorization: Bearer YOUR_API_TOKEN' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "url": "https://myapp.example.com/webhooks/google",
+    "events": ["resource.created", "resource.updated", "resource.deleted"],
+    "description": "Production resource sync handler",
+    "metadata": {
+      "environment": "production",
+      "team": "platform"
+    }
+  }'
+```
+
+### Response
+
+```json title="201 Created"
+{
+  "data": {
+    "id": "wh_01HXYZ345678NEWWOOK",
+    "url": "https://myapp.example.com/webhooks/google",
+    "events": ["resource.created", "resource.updated", "resource.deleted"],
+    "status": "active",
+    "secret": "sk_whsec_4f9a2b1c8e3d7f5a6b0c9e2d1f4a7b3c",
+    "description": "Production resource sync handler",
+    "metadata": {
+      "environment": "production",
+      "team": "platform"
+    },
+    "created_at": "2024-07-10T12:00:00Z",
+    "updated_at": "2024-07-10T12:00:00Z",
+    "last_delivery_at": null,
+    "last_delivery_status": null
+  }
+}
+```
+
+<Warning>
+  The `secret` field is returned **only once** at registration time and is never shown again. Copy it to a secure location (such as an environment variable or secrets manager) immediately — if you lose it, you must delete and re-register the webhook to obtain a new secret.
+</Warning>
+
+### Response Fields
+
+<ResponseField name="data" type="object">
+  The newly registered webhook object, including the one-time `secret` field.
+
+  <Expandable title="Webhook registration response">
+    <ResponseField name="id" type="string">
+      Unique webhook identifier.
+    </ResponseField>
+    <ResponseField name="url" type="string">
+      The registered endpoint URL.
+    </ResponseField>
+    <ResponseField name="events" type="array">
+      Event types this webhook subscribes to.
+    </ResponseField>
+    <ResponseField name="status" type="string">
+      Always `active` for newly created webhooks.
+    </ResponseField>
+    <ResponseField name="secret" type="string">
+      The full signing secret. Use this to verify incoming payloads. **Shown only on creation.**
+    </ResponseField>
+    <ResponseField name="description" type="string | null">
+      Human-readable label for this webhook.
+    </ResponseField>
+    <ResponseField name="metadata" type="object">
+      Custom key-value metadata.
+    </ResponseField>
+    <ResponseField name="created_at" type="string">
+      ISO 8601 timestamp of registration.
+    </ResponseField>
+    <ResponseField name="updated_at" type="string">
+      ISO 8601 timestamp of most recent change.
+    </ResponseField>
+    <ResponseField name="last_delivery_at" type="null">
+      Always `null` for a newly registered webhook.
+    </ResponseField>
+    <ResponseField name="last_delivery_status" type="null">
+      Always `null` for a newly registered webhook.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+## DELETE /v1/webhooks/\{id\}
+
+Permanently remove a registered webhook. Google stops delivering events to the endpoint immediately. This action cannot be undone — you must re-register the webhook if you want to resume delivery.
+
+### Path Parameters
+
+<ParamField path="id" type="string" required>
+  The unique identifier of the webhook to delete. Example: `wh_01HXYZ123456WEBHOOK`.
+</ParamField>
+
+### Request
+
+```bash title="Delete Webhook"
+curl --request DELETE \
+  --url 'https://api.google.com/v1/webhooks/wh_01HXYZ123456WEBHOOK' \
+  --header 'Authorization: Bearer YOUR_API_TOKEN'
+```
+
+### Response
+
+```json title="200 OK"
+{
+  "data": {
+    "id": "wh_01HXYZ123456WEBHOOK",
+    "deleted": true,
+    "deleted_at": "2024-07-10T12:30:00Z"
+  }
+}
+```
+
+### Response Fields
+
+<ResponseField name="data" type="object">
+  Confirmation of the deletion.
+
+  <Expandable title="Deletion confirmation">
+    <ResponseField name="id" type="string">
+      ID of the deleted webhook.
+    </ResponseField>
+    <ResponseField name="deleted" type="boolean">
+      Always `true` on a successful deletion.
+    </ResponseField>
+    <ResponseField name="deleted_at" type="string">
+      ISO 8601 timestamp of when the webhook was removed.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+## Webhook Payload Schema
+
+When an event occurs in your workspace, Google sends an HTTP POST to your registered endpoint with a JSON body conforming to the following schema. Every delivery includes the `X-Google-Signature` header containing an HMAC-SHA256 signature you should verify before processing the payload.
+
+```json title="Example Webhook Payload — resource.created"
+{
+  "id": "evt_01HXYZ999888EVTABC",
+  "type": "resource.created",
+  "created_at": "2024-07-10T13:00:00Z",
+  "workspace_id": "ws_01HXYZ000111WSPACE",
+  "data": {
+    "id": "res_01HXYZ555666EEEFFF",
+    "name": "Product Roadmap H2 2024",
+    "type": "document",
+    "status": "active",
+    "owner_id": "usr_01HXYZ123456ABCDEF",
+    "web_url": "https://docs.google.com/document/d/ghi789/edit",
+    "created_at": "2024-07-10T13:00:00Z",
+    "updated_at": "2024-07-10T13:00:00Z"
+  }
+}
+```
+
+<ResponseField name="id" type="string">
+  Unique identifier for this event delivery, prefixed with `evt_`. Use this for idempotency — Google may retry failed deliveries with the same event ID.
+</ResponseField>
+
+<ResponseField name="type" type="string">
+  The event type that triggered this delivery, e.g. `resource.created`, `user.deleted`.
+</ResponseField>
+
+<ResponseField name="created_at" type="string">
+  ISO 8601 timestamp of when the event was generated.
+</ResponseField>
+
+<ResponseField name="workspace_id" type="string">
+  The ID of the workspace in which the event occurred.
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  The full object snapshot relevant to the event. For `resource.*` events this is a resource object; for `user.*` events this is a user object. The shape matches the corresponding REST endpoint response.
+</ResponseField>
+
+---
+
+## Verifying Payloads and Handling Events
+
+Use your webhook's signing secret to verify that each request genuinely originates from Google before processing it. The following example shows how to register a webhook, verify its signature, and handle the incoming event in a Node.js Express application.
+
+```javascript title="register-webhook.js"
+const API_TOKEN = process.env.GOOGLE_API_TOKEN;
+
+async function registerWebhook() {
+  const response = await fetch('https://api.google.com/v1/webhooks', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${API_TOKEN}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      url: 'https://myapp.example.com/webhooks/google',
+      events: ['resource.created', 'resource.updated', 'resource.deleted'],
+      description: 'Production resource handler',
+    }),
+  });
+
+  const { data } = await response.json();
+
+  // Store data.secret securely — it will not be shown again.
+  console.log('Webhook registered:', data.id);
+  console.log('Signing secret — save this now:', data.secret);
+}
+
+registerWebhook();
+```
+
+```javascript title="webhook-handler.js"
+import express from 'express';
+import crypto from 'crypto';
+
+const app = express();
+const WEBHOOK_SECRET = process.env.GOOGLE_WEBHOOK_SECRET;
+
+// Parse the raw request body so we can verify the signature.
+app.use('/webhooks/google', express.raw({ type: 'application/json' }));
+
+function verifySignature(payload, signature, secret) {
+  const expected = crypto
+    .createHmac('sha256', secret)
+    .update(payload)
+    .digest('hex');
+  const expectedHeader = `sha256=${expected}`;
+  return crypto.timingSafeEqual(
+    Buffer.from(expectedHeader),
+    Buffer.from(signature)
+  );
+}
+
+app.post('/webhooks/google', (req, res) => {
+  const signature = req.headers['x-google-signature'];
+
+  if (!signature || !verifySignature(req.body, signature, WEBHOOK_SECRET)) {
+    console.warn('Invalid webhook signature — ignoring request.');
+    return res.status(401).send('Unauthorized');
+  }
+
+  const event = JSON.parse(req.body.toString());
+
+  // Use the event ID for idempotency — skip duplicates.
+  console.log(`Received event ${event.id} of type ${event.type}`);
+
+  switch (event.type) {
+    case 'resource.created':
+      handleResourceCreated(event.data);
+      break;
+    case 'resource.updated':
+      handleResourceUpdated(event.data);
+      break;
+    case 'resource.deleted':
+      handleResourceDeleted(event.data);
+      break;
+    default:
+      console.log(`Unhandled event type: ${event.type}`);
+  }
+
+  // Respond with 2xx promptly — Google marks deliveries as failed after 10 seconds.
+  res.status(200).send('OK');
+});
+
+function handleResourceCreated(resource) {
+  console.log(`New resource created: ${resource.name} (${resource.id})`);
+}
+
+function handleResourceUpdated(resource) {
+  console.log(`Resource updated: ${resource.name} (${resource.id})`);
+}
+
+function handleResourceDeleted(resource) {
+  console.log(`Resource deleted: ${resource.id}`);
+}
+
+app.listen(3000, () => console.log('Webhook server running on port 3000'));
+```
+
+<Tip>
+  Always verify the `X-Google-Signature` header using a **constant-time comparison** (such as `crypto.timingSafeEqual` in Node.js or `hmac.compare_digest` in Python) to prevent timing attacks. Never compare signatures using the `===` operator or standard string equality — these are vulnerable to timing side-channels that could allow a malicious actor to forge valid signatures.
+</Tip>

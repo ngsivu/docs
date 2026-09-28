@@ -1,0 +1,335 @@
+---
+title: 'Build Your First Google API Integration Step by Step'
+sidebarTitle: 'First Integration'
+description: 'Follow this step-by-step guide to build your first Google integration, from setting up credentials to fetching and handling live API responses.'
+---
+
+Building your first Google integration is straightforward once you understand the core pieces: credentials, a client, and the API calls you want to make. This guide walks you through every step — from generating your API key to making your first authenticated request and gracefully handling errors. By the end, you will have a working integration you can extend to power any Google service in your application.
+
+## Prerequisites
+
+Before you begin, make sure you have the following ready:
+
+- **A Google account** — Sign up at [google.com](https://www.google.com) if you don't already have one.
+- **An API key** — Generate one from the [Google Cloud Console](https://console.cloud.google.com). See the [Authentication guide](/guides/authentication) for a detailed walkthrough.
+- **A development environment** — Node.js 18+ or Python 3.9+ installed locally, with a package manager (`npm`/`yarn` or `pip`).
+- **Dependencies installed** — Run `npm install axios` (JavaScript) or `pip install requests` (Python) to follow along with the examples below.
+
+<Warning>
+  Never hard-code your API key directly in source files you commit to version control. Use environment variables or a secrets manager to keep your credentials safe. Exposing a key in a public repository can result in unauthorized usage and unexpected charges.
+</Warning>
+
+## Integration Steps
+
+<Steps>
+  <Step title="Set Up Your Credentials">
+    Store your API key as an environment variable so it stays out of your source code. Create a `.env` file at the root of your project:
+
+    ```bash title=".env"
+    GOOGLE_API_KEY=your_api_key_here
+    ```
+
+    Load that file at runtime using a library like `dotenv` (JavaScript) or `python-dotenv` (Python). Add `.env` to your `.gitignore` immediately.
+
+    ```bash title=".gitignore"
+    .env
+    ```
+
+    Confirm the variable is available before moving on:
+
+    <CodeGroup>
+    ```javascript title="check-env.js"
+    import 'dotenv/config';
+
+    const apiKey = process.env.GOOGLE_API_KEY;
+    if (!apiKey) {
+      throw new Error('GOOGLE_API_KEY is not set. Check your .env file.');
+    }
+    console.log('API key loaded successfully.');
+    ```
+
+    ```python title="check_env.py"
+    import os
+    from dotenv import load_dotenv
+
+    load_dotenv()
+
+    api_key = os.getenv("GOOGLE_API_KEY")
+    if not api_key:
+        raise EnvironmentError("GOOGLE_API_KEY is not set. Check your .env file.")
+    print("API key loaded successfully.")
+    ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="Initialize the Client">
+    Create a reusable HTTP client configured with your base URL and authentication header. Centralizing this setup means you only need to change it in one place if your configuration evolves.
+
+    <CodeGroup>
+    ```javascript title="client.js"
+    import 'dotenv/config';
+    import axios from 'axios';
+
+    const googleClient = axios.create({
+      baseURL: 'https://www.googleapis.com/v1',
+      headers: {
+        Authorization: `Bearer ${process.env.GOOGLE_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      timeout: 10_000, // 10 seconds
+    });
+
+    export default googleClient;
+    ```
+
+    ```python title="client.py"
+    import os
+    import requests
+    from dotenv import load_dotenv
+
+    load_dotenv()
+
+    BASE_URL = "https://www.googleapis.com/v1"
+
+    def get_session() -> requests.Session:
+        session = requests.Session()
+        session.headers.update({
+            "Authorization": f"Bearer {os.getenv('GOOGLE_API_KEY')}",
+            "Content-Type": "application/json",
+        })
+        return session
+    ```
+    </CodeGroup>
+
+    <Note>
+      Replace `https://www.googleapis.com/v1` with the base URL of the specific Google API you are integrating (for example, `https://www.googleapis.com/drive/v3` for Google Drive).
+    </Note>
+  </Step>
+
+  <Step title="Fetch Resources">
+    With your client ready, make your first API call. The example below fetches a list of resources from the Google API. Swap in the endpoint that matches the service you are building on.
+
+    <CodeGroup>
+    ```javascript title="fetch-resources.js"
+    import googleClient from './client.js';
+
+    async function fetchResources(query) {
+      const response = await googleClient.get('/resources', {
+        params: {
+          q: query,
+          maxResults: 10,
+          fields: 'items(id,name,description)',
+        },
+      });
+      return response.data;
+    }
+
+    const results = await fetchResources('project files');
+    console.log('Resources fetched:', results);
+    ```
+
+    ```python title="fetch_resources.py"
+    from client import get_session
+
+    BASE_URL = "https://www.googleapis.com/v1"
+
+    def fetch_resources(query: str) -> dict:
+        session = get_session()
+        response = session.get(
+            f"{BASE_URL}/resources",
+            params={
+                "q": query,
+                "maxResults": 10,
+                "fields": "items(id,name,description)",
+            },
+        )
+        response.raise_for_status()
+        return response.json()
+
+    if __name__ == "__main__":
+        results = fetch_resources("project files")
+        print("Resources fetched:", results)
+    ```
+    </CodeGroup>
+
+    The `fields` parameter limits the response to only the properties you need, which reduces payload size and speeds up your integration.
+  </Step>
+
+  <Step title="Handle the Response">
+    Parse the response and map it to the data structures your application needs. Always validate the shape of the response before using it.
+
+    <CodeGroup>
+    ```javascript title="handle-response.js"
+    import googleClient from './client.js';
+
+    async function getResourceNames(query) {
+      const response = await googleClient.get('/resources', {
+        params: { q: query, maxResults: 10 },
+      });
+
+      const { items = [] } = response.data;
+
+      if (items.length === 0) {
+        console.log('No resources found for query:', query);
+        return [];
+      }
+
+      return items.map(({ id, name, description }) => ({
+        id,
+        name,
+        description: description ?? 'No description provided',
+      }));
+    }
+
+    const resources = await getResourceNames('reports');
+    resources.forEach((r) => console.log(`[${r.id}] ${r.name} — ${r.description}`));
+    ```
+
+    ```python title="handle_response.py"
+    from client import get_session
+
+    BASE_URL = "https://www.googleapis.com/v1"
+
+    def get_resource_names(query: str) -> list[dict]:
+        session = get_session()
+        response = session.get(
+            f"{BASE_URL}/resources",
+            params={"q": query, "maxResults": 10},
+        )
+        response.raise_for_status()
+        data = response.json()
+
+        items = data.get("items", [])
+        if not items:
+            print(f"No resources found for query: {query}")
+            return []
+
+        return [
+            {
+                "id": item["id"],
+                "name": item["name"],
+                "description": item.get("description", "No description provided"),
+            }
+            for item in items
+        ]
+
+    if __name__ == "__main__":
+        resources = get_resource_names("reports")
+        for r in resources:
+            print(f"[{r['id']}] {r['name']} — {r['description']}")
+    ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="Handle Errors">
+    Network calls fail. Build error handling into your integration from the start so your application degrades gracefully rather than crashing.
+
+    <CodeGroup>
+    ```javascript title="error-handling.js"
+    import googleClient from './client.js';
+
+    async function safeGetResources(query) {
+      try {
+        const response = await googleClient.get('/resources', {
+          params: { q: query },
+        });
+        return { data: response.data, error: null };
+      } catch (err) {
+        if (err.response) {
+          // The server returned a non-2xx status code
+          const { status, data } = err.response;
+          console.error(`API error ${status}:`, data?.error?.message ?? data);
+
+          if (status === 401) {
+            console.error('Your API key is invalid or expired. Regenerate it in the Google Cloud Console.');
+          } else if (status === 429) {
+            console.error('Rate limit exceeded. Back off and retry after the Retry-After header value.');
+          } else if (status >= 500) {
+            console.error('Google returned a server error. Retry with exponential backoff.');
+          }
+        } else if (err.request) {
+          // Request was made but no response received
+          console.error('No response received. Check your network connection.');
+        } else {
+          console.error('Unexpected error:', err.message);
+        }
+        return { data: null, error: err };
+      }
+    }
+
+    const { data, error } = await safeGetResources('invoices');
+    if (!error) {
+      console.log('Success:', data);
+    }
+    ```
+
+    ```python title="error_handling.py"
+    import requests
+    from client import get_session
+
+    BASE_URL = "https://www.googleapis.com/v1"
+
+    def safe_get_resources(query: str) -> tuple[dict | None, Exception | None]:
+        session = get_session()
+        try:
+            response = session.get(
+                f"{BASE_URL}/resources",
+                params={"q": query},
+            )
+            response.raise_for_status()
+            return response.json(), None
+
+        except requests.exceptions.HTTPError as e:
+            status = e.response.status_code
+            body = e.response.json() if e.response.content else {}
+            message = body.get("error", {}).get("message", str(e))
+            print(f"API error {status}: {message}")
+
+            if status == 401:
+                print("Your API key is invalid or expired. Regenerate it in the Google Cloud Console.")
+            elif status == 429:
+                retry_after = e.response.headers.get("Retry-After", "unknown")
+                print(f"Rate limit exceeded. Retry after {retry_after} seconds.")
+            elif status >= 500:
+                print("Google returned a server error. Retry with exponential backoff.")
+            return None, e
+
+        except requests.exceptions.ConnectionError as e:
+            print("No response received. Check your network connection.")
+            return None, e
+
+        except Exception as e:
+            print(f"Unexpected error: {e}")
+            return None, e
+
+    if __name__ == "__main__":
+        data, error = safe_get_resources("invoices")
+        if data:
+            print("Success:", data)
+    ```
+    </CodeGroup>
+
+    <Tip>
+      Implement exponential backoff for `429` and `5xx` errors. Start with a 1-second delay and double it on each retry, up to a maximum of 32 seconds. Most transient failures resolve within a few retries.
+    </Tip>
+  </Step>
+</Steps>
+
+## Next Steps
+
+Now that your first integration is working, explore these resources to take it further:
+
+<CardGroup cols={2}>
+  <Card title="Authentication" icon="key" href="/guides/authentication">
+    Learn how to manage API keys, rotate credentials, and choose the right auth method for your use case.
+  </Card>
+  <Card title="Configuration" icon="sliders" href="/guides/configuration">
+    Customize rate limits, response formats, and locale settings to match your application's needs.
+  </Card>
+  <Card title="Webhooks" icon="bolt" href="/guides/webhooks">
+    Subscribe to real-time events so your application reacts instantly to changes in Google services.
+  </Card>
+  <Card title="API Reference" icon="code" href="/api-reference/introduction">
+    Browse every available endpoint, parameter, and response schema in the full API reference.
+  </Card>
+</CardGroup>

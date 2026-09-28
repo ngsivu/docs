@@ -1,0 +1,66 @@
+---
+title: 'How Google Works: Core Platform Architecture Guide'
+sidebarTitle: 'Overview'
+description: "Understand Google's layered platform model — from services and APIs to data privacy and third-party integrations — before you build."
+---
+
+Google is a unified platform that combines search, productivity, and cloud services under a single API-driven architecture. Whether you are querying the Search API, managing user accounts, or responding to webhook events, every interaction follows a consistent request-response model secured by OAuth 2.0. This overview explains the core architectural concepts that underpin every Google product so you can design reliable integrations from day one.
+
+## Services & Products
+
+Google exposes its capabilities as discrete, independently versioned services. Each service owns a specific domain — Search handles query resolution and ranking, Drive manages file storage, Gmail handles messaging — and each publishes its own REST API surface. Despite this separation, all services share a single authentication layer and a unified identity system, meaning the same user token grants appropriately scoped access across every product your integration touches.
+
+Despite this separation, you interact with every service exclusively through the public API. This boundary keeps your integration clean: you never depend on implementation details that could change between releases.
+
+<Note>
+  Service-level rate limits are enforced independently. Hitting a quota on the Search API does not affect your Drive or Gmail quota. Review the per-service limits in your Google Cloud Console before designing high-throughput workflows.
+</Note>
+
+## API-First Design
+
+Every Google product feature is reachable through a documented API endpoint before it appears in any user interface. This API-first principle means that anything you can do in the Google web console you can also automate programmatically. The platform exposes three primary API styles:
+
+- **REST over HTTPS** — the default for most integrations; uses JSON request and response bodies.
+- **gRPC** — available for latency-sensitive workloads; uses Protocol Buffers for compact serialization.
+- **Client libraries** — official SDKs for Python, Node.js, Java, Go, and .NET that wrap the REST and gRPC layers.
+
+All three styles share the same versioning scheme (`v1`, `v2`, etc.) and the same authentication tokens, so you can mix them freely within a single application.
+
+## Data & Privacy
+
+Google operates a strict data-residency model. When you create a Google Cloud project, you select a region, and your project data — including user records, resource metadata, and event logs — is stored and processed within that region unless you explicitly enable global replication. The platform enforces encryption at rest (AES-256) and in transit (TLS 1.3) for all data without additional configuration.
+
+Privacy controls are surfaced at two levels: the **project level**, where you set data retention policies and audit-logging preferences, and the **user level**, where individual users can inspect, export, or delete their own data through the My Account portal. Your integration must respect both layers and must not cache user data beyond the retention window your project policy defines.
+
+<Warning>
+  If your application stores Google API responses — including user profile data or search results — you are responsible for honoring deletion requests within 30 days. Failure to do so may violate Google's API Terms of Service and applicable privacy regulations.
+</Warning>
+
+## Integration Model
+
+Integrations with Google follow a three-stage lifecycle: **authorization**, **resource access**, and **event handling**. During authorization, your application requests an OAuth 2.0 token scoped to the specific APIs it needs. During resource access, your application reads and writes resources using that token. During event handling, your application receives real-time notifications via webhooks whenever watched resources change.
+
+The conceptual flow looks like this: a user grants your application permission through the OAuth consent screen → Google issues an access token and a refresh token → your application uses the access token to call API endpoints → Google publishes change events to your registered webhook endpoint → your application processes those events and updates its own state accordingly. Every stage is stateless from Google's perspective, so you can horizontally scale each component of your integration independently.
+
+<Info>
+  Refresh tokens do not expire unless revoked by the user or your application. Store them securely in an encrypted secrets manager — never in source code or plaintext configuration files.
+</Info>
+
+## Explore Further
+
+<CardGroup cols={2}>
+  <Card
+    title="Key Features"
+    icon="star"
+    href="/concepts/key-features"
+  >
+    Dive into the specific capabilities of each Google platform feature, including Search, User Management, Webhooks, and more.
+  </Card>
+  <Card
+    title="Data Model"
+    icon="database"
+    href="/concepts/data-model"
+  >
+    Understand the core objects — Users, Resources, Events, and Search Results — and how they relate to each other across the platform.
+  </Card>
+</CardGroup>

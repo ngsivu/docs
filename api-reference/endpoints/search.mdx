@@ -1,0 +1,199 @@
+---
+title: "Search API Endpoint Reference for Google Workspace"
+sidebarTitle: "Search"
+description: "Query users, resources, and workspace content with Google's Search API. Supports full-text keyword search, filters, sorting, and paginated results."
+---
+
+The Search API gives you a single, unified interface to query across all content types in your Google workspace — users, resources, documents, and more. Use `GET /v1/search` for keyword lookups, relevance-ranked results, and filtered queries across your workspace. All search requests require a valid API token with at least `resources:read` scope. See the [Authentication guide](/api-reference/authentication) for details.
+
+---
+
+## GET /v1/search
+
+Perform a fast, keyword-based search across all accessible workspace content. Results are ranked by relevance by default. This endpoint is ideal for autocomplete fields, quick lookups, and simple integrations.
+
+### Query Parameters
+
+<ParamField query="q" type="string" required>
+  The search query string. Supports plain keywords and quoted phrases (e.g., `"annual report"`). Maximum length: 512 characters.
+</ParamField>
+
+<ParamField query="type" type="string">
+  Restrict results to a single content type. Accepted values: `user`, `document`, `spreadsheet`, `presentation`, `file`. Omit to search all types simultaneously.
+</ParamField>
+
+<ParamField query="page" type="integer" default="1">
+  The result page to retrieve. Starts at `1`.
+</ParamField>
+
+<ParamField query="limit" type="integer" default="10">
+  Number of results per page. Accepted values: `1`–`50`.
+</ParamField>
+
+<ParamField query="sort" type="string" default="relevance">
+  Sort order for results. Accepted values: `relevance`, `updated_at`, `created_at`, `name`.
+</ParamField>
+
+<ParamField query="order" type="string" default="desc">
+  Sort direction. Accepted values: `asc`, `desc`. Ignored when `sort=relevance`.
+</ParamField>
+
+### Request
+
+```bash title="Simple Keyword Search"
+curl --request GET \
+  --url 'https://api.google.com/v1/search?q=annual+report&type=document&limit=10' \
+  --header 'Authorization: Bearer YOUR_API_TOKEN' \
+  --header 'Content-Type: application/json'
+```
+
+### Response
+
+```json title="200 OK"
+{
+  "data": [
+    {
+      "id": "res_01HXYZ111222AAABBB",
+      "type": "document",
+      "name": "Annual Report 2023",
+      "snippet": "...this <em>annual report</em> summarizes the financial performance and strategic milestones achieved during fiscal year 2023...",
+      "owner_id": "usr_01HXYZ123456ABCDEF",
+      "web_url": "https://docs.google.com/document/d/abc123/edit",
+      "score": 0.97,
+      "updated_at": "2024-01-15T09:00:00Z"
+    },
+    {
+      "id": "res_01HXYZ333444CCCDDDD",
+      "type": "spreadsheet",
+      "name": "Annual Report Data 2023",
+      "snippet": "...source data for the <em>annual report</em>, including revenue figures by region...",
+      "owner_id": "usr_01HXYZ789012GHIJKL",
+      "web_url": "https://sheets.google.com/spreadsheets/d/def456/edit",
+      "score": 0.84,
+      "updated_at": "2024-01-10T16:45:00Z"
+    }
+  ],
+  "meta": {
+    "total": 24,
+    "page": 1,
+    "limit": 10,
+    "total_pages": 3,
+    "query": "annual report",
+    "took_ms": 38
+  }
+}
+```
+
+### Response Fields
+
+<ResponseField name="data" type="array">
+  Ranked array of search result objects.
+
+  <Expandable title="Search result object">
+    <ResponseField name="id" type="string">
+      Unique identifier of the matched resource or user.
+    </ResponseField>
+    <ResponseField name="type" type="string">
+      Content type of the result: `user`, `document`, `spreadsheet`, `presentation`, or `file`.
+    </ResponseField>
+    <ResponseField name="name" type="string">
+      Display name of the matched item.
+    </ResponseField>
+    <ResponseField name="snippet" type="string">
+      A short excerpt from the content with query terms wrapped in `<em>` tags for highlight rendering.
+    </ResponseField>
+    <ResponseField name="owner_id" type="string">
+      User ID of the item's owner.
+    </ResponseField>
+    <ResponseField name="web_url" type="string">
+      Direct URL to open the item in the Google web interface.
+    </ResponseField>
+    <ResponseField name="score" type="number">
+      Relevance score between `0.0` and `1.0`. Higher scores indicate stronger matches.
+    </ResponseField>
+    <ResponseField name="updated_at" type="string">
+      ISO 8601 timestamp of the item's most recent modification.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="meta" type="object">
+  Metadata about the search operation.
+
+  <Expandable title="Meta object">
+    <ResponseField name="total" type="integer">
+      Total number of matching results across all pages.
+    </ResponseField>
+    <ResponseField name="page" type="integer">
+      Current page number.
+    </ResponseField>
+    <ResponseField name="limit" type="integer">
+      Number of results per page.
+    </ResponseField>
+    <ResponseField name="total_pages" type="integer">
+      Total number of result pages.
+    </ResponseField>
+    <ResponseField name="query" type="string">
+      The normalized query string that was executed.
+    </ResponseField>
+    <ResponseField name="took_ms" type="integer">
+      Server-side query execution time in milliseconds.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+## Pagination
+
+The search endpoint returns paginated results. Use the `page` and `limit` parameters to walk through large result sets. The `meta` object in every response tells you `total`, `total_pages`, and the current `page` so you can build navigation controls.
+
+Here is an example that iterates through all pages of results programmatically:
+
+```javascript title="Paginate All Search Results"
+const API_TOKEN = process.env.GOOGLE_API_TOKEN;
+const BASE_URL = 'https://api.google.com';
+
+async function fetchAllResults(query) {
+  let page = 1;
+  let totalPages = null;
+  const allResults = [];
+
+  do {
+    const response = await fetch(
+      `${BASE_URL}/v1/search?q=${encodeURIComponent(query)}&page=${page}&limit=50`,
+      {
+        headers: {
+          Authorization: `Bearer ${API_TOKEN}`,
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+
+    const { data, meta } = await response.json();
+    allResults.push(...data);
+
+    totalPages = meta.total_pages;
+    console.log(`Fetched page ${page} of ${totalPages} (${meta.total} total results)`);
+    page++;
+  } while (page <= totalPages);
+
+  return allResults;
+}
+
+fetchAllResults('quarterly report').then((results) => {
+  console.log(`Retrieved ${results.length} results total.`);
+});
+```
+
+<Tip>
+  Set `limit=50` (the maximum) when paginating programmatically to minimize the number of API calls. For interactive UIs, use smaller values like `10` or `20` for faster individual responses.
+</Tip>
+
+---
+
+## Rate Limits
+
+<Note>
+  The Search API enforces a rate limit of **60 requests per minute** per API token. Exceeding this limit returns a `429 Too Many Requests` response with a `Retry-After` header indicating how many seconds to wait before retrying. For high-volume search workloads, consider caching frequently repeated queries or contacting your account team to discuss an elevated limit.
+</Note>

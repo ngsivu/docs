@@ -1,0 +1,194 @@
+---
+title: 'Google REST API: Complete Overview and Getting Started'
+sidebarTitle: 'Introduction'
+description: 'Explore the Google REST API — a unified interface for search, productivity, and cloud services with predictable, resource-oriented URLs.'
+---
+
+The Google REST API gives you programmatic access to the full suite of Google platform capabilities — from search and indexing to user management, cloud resources, and real-time webhooks. Every feature available in the Google dashboard is also available through the API, so you can automate workflows, build integrations, and extend the platform to fit exactly how your team works. The API follows REST conventions, uses JSON for all request and response bodies, and is secured with API key authentication over HTTPS.
+
+## Base URL and Versioning
+
+All API requests are made over HTTPS to the following base URL:
+
+```text
+https://api.google.com/v1
+```
+
+The current stable version is **v1**. When breaking changes are introduced, a new version is released (e.g., `/v2`) and the previous version remains available with a deprecation notice. You should always pin your integrations to an explicit version to avoid unexpected changes.
+
+<Note>
+  The API will never introduce breaking changes within a version. Additive changes — such as new optional fields or new endpoints — may be introduced at any time without a version bump.
+</Note>
+
+## Content Type
+
+All request and response bodies use JSON. You must include the `Content-Type` header on any request that sends a body:
+
+```http
+Content-Type: application/json
+Accept: application/json
+```
+
+## Quick Start Example
+
+The following example retrieves details for the currently authenticated user. Replace `YOUR_API_KEY` with a valid key obtained from the [Google Developer Dashboard](https://dashboard.google.com/api-keys).
+
+<Tabs>
+  <Tab title="curl">
+    ```bash
+    curl -X GET https://api.google.com/v1/users/me \
+      -H "Authorization: Bearer YOUR_API_KEY" \
+      -H "Accept: application/json"
+    ```
+  </Tab>
+  <Tab title="JavaScript">
+    ```javascript
+    const response = await fetch('https://api.google.com/v1/users/me', {
+      method: 'GET',
+      headers: {
+        'Authorization': 'Bearer YOUR_API_KEY',
+        'Accept': 'application/json',
+      },
+    });
+
+    const user = await response.json();
+    console.log(user);
+    ```
+  </Tab>
+  <Tab title="Python">
+    ```python
+    import requests
+
+    response = requests.get(
+        'https://api.google.com/v1/users/me',
+        headers={
+            'Authorization': 'Bearer YOUR_API_KEY',
+            'Accept': 'application/json',
+        }
+    )
+
+    user = response.json()
+    print(user)
+    ```
+  </Tab>
+</Tabs>
+
+A successful response returns a `200 OK` with the user object:
+
+```json
+{
+  "id": "usr_01HXYZ1234ABCDEF",
+  "email": "you@example.com",
+  "display_name": "Jane Smith",
+  "created_at": "2024-01-15T10:30:00Z",
+  "plan": "pro",
+  "scopes": ["users:read", "resources:read", "resources:write", "search:read"]
+}
+```
+
+## Rate Limits
+
+To ensure platform stability and fair usage, the Google REST API enforces rate limits at multiple time windows. Limits are applied per API key.
+
+| Window       | Limit              |
+|--------------|--------------------|
+| Per second   | 50 requests        |
+| Per minute   | 1,000 requests     |
+| Per day      | 100,000 requests   |
+
+When you exceed a rate limit, the API returns a `429 Too Many Requests` response. The response includes the following headers to help you back off gracefully:
+
+| Header                  | Description                                              |
+|-------------------------|----------------------------------------------------------|
+| `X-RateLimit-Limit`     | Total requests allowed in the current window             |
+| `X-RateLimit-Remaining` | Requests remaining before the limit is reached           |
+| `X-RateLimit-Reset`     | Unix timestamp (UTC) when the current window resets      |
+| `Retry-After`           | Seconds to wait before retrying                          |
+
+<Tip>
+  Implement exponential backoff in your integration. Start with a 1-second delay after a `429` response and double it on each subsequent retry, up to a maximum of 60 seconds.
+</Tip>
+
+## Explore the API
+
+Use the cards below to jump into authentication, error handling, or any of the main endpoint groups.
+
+<CardGroup cols={2}>
+  <Card
+    title="Authentication"
+    icon="key"
+    href="/api-reference/authentication"
+  >
+    Learn how to generate an API key and authenticate every request using the Authorization header.
+  </Card>
+  <Card
+    title="Error Codes"
+    icon="triangle-exclamation"
+    href="/api-reference/errors"
+  >
+    Understand every HTTP status code the API returns, along with common causes and remediation steps.
+  </Card>
+  <Card
+    title="Users"
+    icon="user"
+    href="/api-reference/endpoints/users"
+  >
+    Create, retrieve, update, and delete user accounts and manage profile data across your organization.
+  </Card>
+  <Card
+    title="Resources"
+    icon="layer-group"
+    href="/api-reference/endpoints/resources"
+  >
+    Manage cloud resources, configure access controls, and track resource lifecycle events.
+  </Card>
+  <Card
+    title="Search"
+    icon="magnifying-glass"
+    href="/api-reference/endpoints/search"
+  >
+    Execute full-text and semantic search queries across indexed content in your Google workspace.
+  </Card>
+  <Card
+    title="Webhooks"
+    icon="webhook"
+    href="/api-reference/endpoints/webhooks"
+  >
+    Register webhook endpoints to receive real-time event notifications for any API resource.
+  </Card>
+</CardGroup>
+
+## Official SDKs
+
+Google provides first-party SDKs for the most common platforms. Each SDK wraps the REST API and handles authentication, retries, and serialization automatically.
+
+<CardGroup cols={2}>
+  <Card
+    title="JavaScript / TypeScript SDK"
+    icon="js"
+    href="https://github.com/google/google-js-sdk"
+  >
+    Install via npm: `npm install @google/api-client`
+  </Card>
+  <Card
+    title="Python SDK"
+    icon="python"
+    href="https://github.com/google/google-python-sdk"
+  >
+    Install via pip: `pip install google-api-client`
+  </Card>
+  <Card
+    title="Go SDK"
+    icon="golang"
+    href="https://github.com/google/google-go-sdk"
+  >
+    Install via go get: `go get github.com/google/api-client`
+  </Card>
+  <Card
+    title="Java SDK"
+    icon="java"
+    href="https://github.com/google/google-java-sdk"
+  >
+    Available on Maven Central: `com.google:api-client`
+  </Card>
+</CardGroup>

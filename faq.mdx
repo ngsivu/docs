@@ -1,0 +1,144 @@
+---
+title: "Frequently Asked Questions on Google APIs and Services"
+sidebarTitle: "FAQ"
+description: "Find answers to the most common questions about Google APIs, account management, rate limits, data formats, billing, and platform support."
+---
+
+Whether you are just getting started with Google's APIs or managing an existing integration at scale, you will likely run into questions along the way. This page collects the most frequently asked questions from developers and administrators across Google Search, Workspace, and Cloud services — so you can find clear, authoritative answers in one place. If your issue is technical in nature, such as an unexpected error code or a broken request, see the dedicated troubleshooting guide.
+
+<Note>
+  For technical errors and debugging steps, visit the [Troubleshooting](/troubleshooting) page.
+</Note>
+
+## General
+
+<Accordion title="How do I get an API key?">
+  To obtain an API key for Google services, follow these steps:
+
+  1. Sign in to the [Google Cloud Console](https://console.cloud.google.com).
+  2. Select or create a project from the project selector at the top of the page.
+  3. Navigate to **APIs & Services → Credentials** in the left sidebar.
+  4. Click **Create Credentials** and choose **API key**.
+  5. Copy the generated key and store it securely — treat it like a password.
+
+  After you create the key, restrict it to specific APIs and IP addresses or referrer URLs to reduce the risk of unauthorized use. You can apply these restrictions at any time from the **Credentials** page by clicking the pencil icon next to your key.
+
+  <Tip>
+    Rotate your API keys regularly and use environment variables or a secrets manager — never hard-code them directly in source files or commit them to version control.
+  </Tip>
+</Accordion>
+
+<Accordion title="What are the rate limits for Google APIs?">
+  Rate limits vary by product and pricing tier, but the following general rules apply across most Google APIs:
+
+  | Tier | Requests per minute (RPM) | Requests per day |
+  |------|--------------------------|-----------------|
+  | Free | 60 RPM | 1,000 |
+  | Standard | 600 RPM | 100,000 |
+  | Enterprise | Custom | Custom |
+
+  When you exceed a rate limit, the API returns an HTTP `429 Too Many Requests` response with a `Retry-After` header indicating how many seconds to wait before retrying. Implement exponential back-off in your client to handle bursts gracefully without flooding the server.
+
+  To check your current quota usage, go to **APIs & Services → Quotas** in the Google Cloud Console. You can request a quota increase from the same page if your workload consistently approaches the limit.
+</Accordion>
+
+<Accordion title="How do I handle pagination in API responses?">
+  Most Google API list endpoints return paginated results to keep individual response payloads manageable. The standard pagination pattern uses a `pageToken` cursor:
+
+  1. Make your initial request without a `pageToken`.
+  2. If the response contains a `nextPageToken` field, pass its value as the `pageToken` query parameter in your next request.
+  3. Repeat until the response contains no `nextPageToken`, which signals the final page.
+
+  ```python title="pagination_example.py"
+  import requests
+
+  API_KEY = "YOUR_API_KEY"
+  url = "https://www.googleapis.com/example/v1/resources"
+  params = {"key": API_KEY, "maxResults": 50}
+
+  while True:
+      response = requests.get(url, params=params)
+      data = response.json()
+
+      for item in data.get("items", []):
+          process(item)
+
+      next_page_token = data.get("nextPageToken")
+      if not next_page_token:
+          break
+
+      params["pageToken"] = next_page_token
+  ```
+
+  You can control the page size with the `maxResults` (or `pageSize`, depending on the API) query parameter. Check the reference docs for each endpoint to confirm the maximum allowed value, which is typically between 100 and 1,000 items per page.
+</Accordion>
+
+<Accordion title="What data formats does Google support?">
+  Google APIs primarily use **JSON** for both request bodies and response payloads. All requests must set the `Content-Type: application/json` header when sending a body, and responses will include `Content-Type: application/json; charset=UTF-8`.
+
+  Several APIs also support:
+
+  - **Protocol Buffers (proto3)** — available on gRPC-enabled APIs for lower latency and smaller payload sizes. Useful in high-throughput server-to-server scenarios.
+  - **CSV / NDJSON** — used by BigQuery and some data export endpoints for bulk operations.
+  - **Multipart / form-data** — required when uploading binary files such as images, videos, or documents through the Drive or Cloud Storage APIs.
+
+  For APIs that support both JSON and Protocol Buffers, you can request proto-encoded responses by setting the `Accept: application/x-protobuf` header. JSON remains the recommended default for most integrations because of its broad tooling support and readability.
+</Accordion>
+
+<Accordion title="What regions and languages are supported?">
+  Google services are available globally with data centers across North America, Europe, Asia Pacific, South America, and the Middle East. For Google Cloud products, you can explicitly select a **region** (e.g., `us-central1`, `europe-west1`) or a **multi-region** (e.g., `us`, `eu`) when creating resources to control where your data is stored and processed.
+
+  Language support varies by product:
+
+  - **Google Search API** supports over 40 languages and locale parameters such as `hl` (host language) and `gl` (geolocation) to tailor results.
+  - **Google Translate** covers 130+ languages.
+  - **Google Workspace** (Docs, Sheets, Gmail) is available in 80+ interface languages.
+  - **Natural Language and Speech APIs** support a curated subset of languages; consult the individual product documentation for the full list.
+
+  To specify a language or region in your API requests, pass the appropriate BCP-47 language tag (e.g., `en-US`, `fr-FR`, `ja-JP`) in the relevant query parameter or request body field.
+</Accordion>
+
+<Accordion title="How do I upgrade my Google plan?">
+  To upgrade your billing plan or quota tier, follow these steps:
+
+  1. Open the [Google Cloud Console](https://console.cloud.google.com) and select your project.
+  2. Navigate to **Billing** in the left sidebar to review your current plan and usage.
+  3. Click **Upgrade** or **Manage billing account** to view available plans.
+  4. Select the plan that matches your anticipated usage and complete the payment details.
+
+  For Google Workspace plans (Business Starter, Standard, Plus, or Enterprise), upgrades are managed through the [Google Admin Console](https://admin.google.com) under **Billing → Subscriptions**.
+
+  Changes take effect immediately after you confirm the upgrade. You will receive a confirmation email and an updated invoice at the start of your next billing cycle. If you need a custom Enterprise agreement with volume discounts or SLA guarantees, contact [Google Sales](https://cloud.google.com/contact).
+</Accordion>
+
+<Accordion title="How do I report a bug or request a new feature?">
+  Google provides several channels depending on the product and the nature of your feedback:
+
+  - **Issue Tracker** — For API bugs, unexpected behaviour, or documentation errors, file a report at [issuetracker.google.com](https://issuetracker.google.com). Choose the appropriate product component and provide a minimal reproducible example, the full request/response, and the timestamp of the failure.
+  - **Google Cloud Support** — If you have a paid support plan (Basic, Standard, Enhanced, or Premium), open a case directly from the **Support** section of the Cloud Console for prioritised assistance.
+  - **UserVoice / Product feedback forms** — Many Google products include an in-product **Send feedback** button or a public ideas forum where you can upvote existing feature requests or submit your own.
+  - **Stack Overflow** — Tag your questions with the relevant product tag (e.g., `google-maps-api`, `google-sheets-api`) for community support.
+
+  When filing a bug, always include your project ID, the API name and version, the full error message, and the steps to reproduce the issue. Avoid including your API key or any sensitive credentials in bug reports.
+</Accordion>
+
+<Accordion title="How do I delete my Google account or project?">
+  **Deleting a Google Cloud project:**
+
+  1. Go to the [Google Cloud Console](https://console.cloud.google.com) and open **IAM & Admin → Manage Resources**.
+  2. Select the project you want to delete.
+  3. Click **Delete** at the top of the page and follow the confirmation prompt.
+  4. The project enters a 30-day pending deletion period. You can restore it before the period ends; after that, all data is permanently removed.
+
+  **Deleting a Google Workspace account:**
+
+  Only a super administrator can delete a Workspace account. Navigate to **Admin Console → Account → Account settings → Delete account** and follow the guided steps. Export any data you need to keep beforehand using [Google Takeout](https://takeout.google.com).
+
+  **Deleting a personal Google account:**
+
+  Go to **myaccount.google.com → Data & privacy → Delete your Google Account**. You will be prompted to download your data before proceeding. Deletion is permanent and cannot be undone once the confirmation period expires.
+
+  <Warning>
+    Deleting a project or account permanently destroys all associated data, including databases, stored files, and API credentials. Download and archive any data you need before initiating deletion.
+  </Warning>
+</Accordion>

@@ -1,0 +1,89 @@
+{
+  "projectType": "saas",
+  "projectName": "Google",
+  "projectDescription": "A comprehensive platform providing search, productivity, and cloud services to users and businesses worldwide.",
+  "theme": "luma",
+  "primaryColor": "#ef7025",
+  "lightColor": "#eec9bc",
+  "darkColor": "#4fa1ab",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "account-setup"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/overview",
+              "concepts/key-features",
+              "concepts/data-model"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/first-integration",
+              "guides/authentication",
+              "guides/configuration",
+              "guides/webhooks"
+            ]
+          },
+          {
+            "group": "Support",
+            "pages": [
+              "faq",
+              "troubleshooting"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "API Overview",
+            "pages": [
+              "api-reference/introduction",
+              "api-reference/authentication",
+              "api-reference/errors"
+            ]
+          },
+          {
+            "group": "Endpoints",
+            "pages": [
+              "api-reference/endpoints/users",
+              "api-reference/endpoints/resources",
+              "api-reference/endpoints/search",
+              "api-reference/endpoints/webhooks"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Powerful search and discovery",
+    "User authentication and account management",
+    "REST API with comprehensive endpoint coverage",
+    "Webhook integrations for real-time events",
+    "Configurable settings and customization options",
+    "Cloud-based data storage and retrieval"
+  ],
+  "publicApiSurface": [
+    "GET /users",
+    "POST /users",
+    "GET /resources",
+    "POST /resources",
+    "GET /search",
+    "POST /webhooks",
+    "DELETE /webhooks/{id}"
+  ]
+}

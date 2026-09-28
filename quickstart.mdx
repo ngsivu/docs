@@ -1,0 +1,131 @@
+---
+title: 'Google Quick Start: Account, API Key, and First Request'
+sidebarTitle: 'Quick Start'
+description: 'Create a Google account, generate your API key, and make your first authenticated API call in just a few minutes with this step-by-step guide.'
+---
+
+This guide walks you through everything you need to go from a fresh Google account to a working API integration. By the end, you'll have authenticated credentials, a confirmed API call, and a clear path to exploring the rest of Google's platform. The whole process takes about five minutes.
+
+<Steps>
+  <Step title="Create your Google account">
+    Go to [accounts.google.com/signup](https://accounts.google.com/signup) and fill in your name, email address, and a strong password. If you already have a Google account — including any Gmail or Workspace account — you can use it directly.
+
+    Once you've signed in, navigate to the [Google Cloud Console](https://console.cloud.google.com) and accept the terms of service. Then create your first **project**:
+
+    1. Click the project selector at the top of the Console.
+    2. Select **New Project**.
+    3. Enter a project name (for example, `my-first-google-project`) and click **Create**.
+
+    <Note>
+      Every Google Cloud resource — API keys, service accounts, billing — lives inside a project. Keep separate projects for development and production environments.
+    </Note>
+  </Step>
+
+  <Step title="Enable an API and generate your API key">
+    With your project selected, enable the API you want to use. For this quick start, you'll enable the **Custom Search API** as a concrete example — but the same steps apply to any Google API.
+
+    1. In the Cloud Console, go to **APIs & Services → Library**.
+    2. Search for **Custom Search API** and click **Enable**.
+    3. Navigate to **APIs & Services → Credentials**.
+    4. Click **Create Credentials → API key**.
+    5. Copy the generated key and store it securely (for example, in an environment variable or a secrets manager — never hard-code it in source files).
+
+    <Note>
+      Find all your API keys at any time by returning to **APIs & Services → Credentials** in the [Google Cloud Console](https://console.cloud.google.com/apis/credentials). You can restrict a key to specific APIs or HTTP referrers to limit its blast radius if it's ever exposed.
+    </Note>
+  </Step>
+
+  <Step title="Make your first API call">
+    Now test your credentials with a live request. The examples below call the Google Custom Search API to run a search query. Replace `YOUR_API_KEY` with the key you generated in the previous step, and replace `YOUR_SEARCH_ENGINE_ID` with your Programmable Search Engine ID (create one at [programmablesearchengine.google.com](https://programmablesearchengine.google.com)).
+
+    <Tabs>
+      <Tab title="cURL">
+        ```bash
+        curl -G "https://www.googleapis.com/customsearch/v1" \
+          --data-urlencode "key=YOUR_API_KEY" \
+          --data-urlencode "cx=YOUR_SEARCH_ENGINE_ID" \
+          --data-urlencode "q=Google Cloud documentation"
+        ```
+      </Tab>
+      <Tab title="JavaScript">
+        ```javascript title="search.js"
+        const API_KEY = process.env.GOOGLE_API_KEY;
+        const SEARCH_ENGINE_ID = process.env.GOOGLE_SEARCH_ENGINE_ID;
+        const query = "Google Cloud documentation";
+
+        const url = new URL("https://www.googleapis.com/customsearch/v1");
+        url.searchParams.set("key", API_KEY);
+        url.searchParams.set("cx", SEARCH_ENGINE_ID);
+        url.searchParams.set("q", query);
+
+        const response = await fetch(url.toString());
+        const data = await response.json();
+
+        console.log(`Total results: ${data.searchInformation.totalResults}`);
+        data.items.forEach((item) => {
+          console.log(`${item.title} — ${item.link}`);
+        });
+        ```
+      </Tab>
+      <Tab title="Python">
+        ```python title="search.py"
+        import os
+        import requests
+
+        API_KEY = os.environ["GOOGLE_API_KEY"]
+        SEARCH_ENGINE_ID = os.environ["GOOGLE_SEARCH_ENGINE_ID"]
+        query = "Google Cloud documentation"
+
+        response = requests.get(
+            "https://www.googleapis.com/customsearch/v1",
+            params={
+                "key": API_KEY,
+                "cx": SEARCH_ENGINE_ID,
+                "q": query,
+            },
+        )
+        response.raise_for_status()
+        data = response.json()
+
+        print(f"Total results: {data['searchInformation']['totalResults']}")
+        for item in data.get("items", []):
+            print(f"{item['title']} — {item['link']}")
+        ```
+      </Tab>
+    </Tabs>
+
+    A successful response returns a JSON object with a `searchInformation` block and an `items` array of search results. If you receive a `403` error, double-check that the Custom Search API is enabled for your project and that your API key is correct.
+
+    <Tip>
+      Set your API key as an environment variable (`GOOGLE_API_KEY`) rather than pasting it into your code. This keeps credentials out of version control and makes it easy to rotate keys without code changes.
+    </Tip>
+  </Step>
+
+  <Step title="Explore the dashboard">
+    With a working API call confirmed, take a few minutes to get familiar with the tools you'll use day to day:
+
+    - **Cloud Console dashboard** (`console.cloud.google.com`) — monitor API usage, review error rates, and manage all your Google Cloud resources.
+    - **APIs & Services → Dashboard** — see a breakdown of traffic, latency, and errors for every API you've enabled.
+    - **Billing** — set up a billing account if you haven't already, and configure budget alerts so you're notified before costs exceed a threshold you set.
+    - **IAM & Admin** — add team members to your project and assign roles that grant only the permissions each person needs.
+  </Step>
+</Steps>
+
+## What's next
+
+You've authenticated with the Google API and made a successful request. Here's where to go from here:
+
+<CardGroup cols={2}>
+  <Card title="API Reference" icon="book" href="/api-reference/introduction">
+    Browse the complete REST API documentation — endpoints, parameters, request bodies, and response schemas for every available operation.
+  </Card>
+  <Card title="Authentication Guide" icon="lock" href="/guides/authentication">
+    Go deeper on OAuth 2.0, service accounts, and API key best practices for production applications.
+  </Card>
+  <Card title="First Integration" icon="puzzle-piece" href="/guides/first-integration">
+    Follow an end-to-end walkthrough for integrating a Google service into a real application.
+  </Card>
+  <Card title="Account Setup" icon="user-gear" href="/account-setup">
+    Configure billing, invite your team, and set up organizational policies for your Google account.
+  </Card>
+</CardGroup>

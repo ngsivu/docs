@@ -1,0 +1,164 @@
+---
+title: 'Google REST API Authentication: API Keys and Scopes'
+sidebarTitle: 'Authentication'
+description: 'Secure every Google REST API request with API key authentication — generate keys, set scopes, and follow security best practices.'
+---
+
+Every request to the Google REST API must be authenticated. The API uses API key authentication transmitted via the HTTP `Authorization` header. API keys are long-lived credentials tied to your Google account, and each key carries a set of scopes that define exactly which endpoints and operations it may access. You can create and manage keys at any time from the Google Developer Dashboard without restarting your application.
+
+## Generate an API Key
+
+Before you can make API calls, you need to create an API key from your Google Developer Dashboard.
+
+<Steps>
+  <Step title="Open the Developer Dashboard">
+    Navigate to the [Google Developer Dashboard](https://dashboard.google.com/api-keys) and sign in with your Google account. If you do not yet have an account, complete the sign-up flow first — see [Account Setup](/account-setup) for a walkthrough.
+  </Step>
+  <Step title="Create a new key">
+    Click **New API Key** in the top-right corner of the API Keys page. Give the key a descriptive name (e.g., `production-backend` or `ci-pipeline`) so you can identify it later.
+  </Step>
+  <Step title="Select scopes">
+    Choose the permission scopes this key requires. Follow the principle of least privilege — only select the scopes your integration actively uses. See the [Scopes and Permissions](#scopes-and-permissions) section below for the full list.
+  </Step>
+  <Step title="Copy and store the key securely">
+    After creation, the dashboard displays the full key **one time only**. Copy it immediately and store it in a secrets manager, environment variable, or vault. If you lose the key, you must rotate it — there is no way to view it again.
+  </Step>
+</Steps>
+
+<Warning>
+  Never commit an API key to source control or embed it directly in client-side code. Treat your API key with the same care as a password. Use environment variables or a dedicated secrets manager (such as AWS Secrets Manager, HashiCorp Vault, or Google Secret Manager) to inject keys into your application at runtime.
+</Warning>
+
+## Authenticate a Request
+
+Include your API key in the `Authorization` header of every request using the `Bearer` scheme:
+
+```http
+Authorization: Bearer YOUR_API_KEY
+```
+
+The following examples show a complete authenticated request to retrieve a list of resources.
+
+<Tabs>
+  <Tab title="curl">
+    ```bash
+    curl -X GET https://api.google.com/v1/resources \
+      -H "Authorization: Bearer YOUR_API_KEY" \
+      -H "Accept: application/json"
+    ```
+  </Tab>
+  <Tab title="JavaScript">
+    ```javascript
+    const API_KEY = process.env.GOOGLE_API_KEY;
+
+    const response = await fetch('https://api.google.com/v1/resources', {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${API_KEY}`,
+        'Accept': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    console.log(data.resources);
+    ```
+  </Tab>
+  <Tab title="Python">
+    ```python
+    import os
+    import requests
+
+    API_KEY = os.environ['GOOGLE_API_KEY']
+
+    response = requests.get(
+        'https://api.google.com/v1/resources',
+        headers={
+            'Authorization': f'Bearer {API_KEY}',
+            'Accept': 'application/json',
+        }
+    )
+
+    response.raise_for_status()
+    data = response.json()
+    print(data['resources'])
+    ```
+  </Tab>
+</Tabs>
+
+## Authorization Header Reference
+
+<ParamField header="Authorization" type="string" required>
+  The API key credential in Bearer token format. Must be present on every request.
+
+  **Format:** `Bearer YOUR_API_KEY`
+
+  **Example:** `Bearer ggl_live_sk_abcdef1234567890ABCDEF1234567890`
+
+  Requests made without this header, or with a malformed or revoked key, return `401 Unauthorized`.
+</ParamField>
+
+<ParamField header="Content-Type" type="string">
+  Required on any request that sends a JSON body (POST, PUT, PATCH). Set to `application/json`.
+
+  **Example:** `Content-Type: application/json`
+</ParamField>
+
+<ParamField header="Accept" type="string">
+  Specifies the response format. The API only supports `application/json`. While optional, including this header is recommended for forward compatibility.
+
+  **Example:** `Accept: application/json`
+</ParamField>
+
+## Scopes and Permissions
+
+Scopes are space-separated strings that define which resources and operations an API key can access. You assign scopes when you create or edit a key.
+
+| Scope                | Description                                                       |
+|----------------------|-------------------------------------------------------------------|
+| `users:read`         | Read user profiles, preferences, and account metadata            |
+| `users:write`        | Create, update, and delete user accounts                         |
+| `resources:read`     | List and retrieve cloud resources and their configurations        |
+| `resources:write`    | Create, update, and delete cloud resources                        |
+| `search:read`        | Execute search queries and read indexed content                   |
+| `search:write`       | Manage search indexes and update indexed documents               |
+| `webhooks:read`      | List and retrieve webhook endpoint configurations                 |
+| `webhooks:write`     | Create, update, and delete webhook endpoints                     |
+| `admin`              | Full administrative access to all resources and settings         |
+
+<Info>
+  If you request an endpoint that requires a scope your key does not have, the API returns `403 Forbidden` with an `insufficient_scope` error code. Update the key's scopes in the dashboard and redeploy.
+</Info>
+
+## Rotating and Revoking Keys
+
+Rotate your API keys regularly and immediately revoke any key you suspect has been compromised.
+
+<Steps>
+  <Step title="Create a replacement key">
+    In the [Developer Dashboard](https://dashboard.google.com/api-keys), create a new API key with the same scopes as the key you want to replace.
+  </Step>
+  <Step title="Deploy the new key">
+    Update your application's environment variables or secrets manager with the new key value. Verify that your application is sending requests successfully with the new key.
+  </Step>
+  <Step title="Revoke the old key">
+    Return to the dashboard, locate the old key, and click **Revoke**. Revocation is immediate — any request still using the old key will receive `401 Unauthorized`.
+  </Step>
+</Steps>
+
+<Tip>
+  Set a calendar reminder to rotate production API keys every 90 days. For CI/CD pipelines and automated systems, rotate keys on every deployment by generating a short-lived key at the start of each run and revoking it at the end.
+</Tip>
+
+## Security Best Practices
+
+Follow these guidelines to keep your API keys secure in production:
+
+- **Use environment variables.** Never hardcode keys in your application source code. Read them from `process.env` (Node.js), `os.environ` (Python), or equivalent.
+- **Restrict scopes.** Grant each key only the scopes it needs. A key used only for search queries should have `search:read`, not `admin`.
+- **Separate keys per environment.** Use distinct keys for development, staging, and production. This limits the blast radius if a key is exposed.
+- **Monitor usage.** Review the API key activity log in the dashboard regularly. Unusual spikes or unexpected geographic origins can indicate unauthorized use.
+- **Set up alerts.** Configure [webhook notifications](/guides/webhooks) for `api_key.suspicious_activity` events to receive real-time alerts when anomalous usage is detected.

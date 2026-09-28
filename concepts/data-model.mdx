@@ -1,0 +1,165 @@
+---
+title: 'Google API Data Model: Users, Resources, and Events'
+sidebarTitle: 'Data Model'
+description: "Learn the structure of Google's core objects — Users, Resources, Events, and Search Results — and how they relate to each other across the platform."
+---
+
+Every object you create, read, or receive through the Google API belongs to one of four core types: Users, Resources, Events, and Search Results. Understanding the shape of these objects — their fields, their identifiers, and the way they reference each other — is the single most important prerequisite for building a reliable integration. This page documents each type in detail and explains how the relationships between them flow through the platform.
+
+## Users
+
+A User represents an authenticated identity within your Google Workspace domain or your Google Cloud project. Users are the root of the permission model: every Resource is owned by a User, every Event is triggered by or targeted at a User, and every API call is authorized on behalf of a User (or a service account acting as one). The platform assigns each User a stable, immutable `userId` at creation time; this identifier persists even if the user changes their primary email address.
+
+<ResponseField name="userId" type="string" required>
+  A globally unique UUID assigned by Google at account creation. Use this identifier — not the email address — as the foreign key in your own data stores, since email addresses can change.
+</ResponseField>
+
+<ResponseField name="primaryEmail" type="string" required>
+  The user's primary email address within the domain. Must be unique across the domain. Follows RFC 5321 format.
+</ResponseField>
+
+<ResponseField name="name" type="object" required>
+  A structured name object containing `givenName` (string), `familyName` (string), and `fullName` (string, read-only, computed by the platform).
+</ResponseField>
+
+<ResponseField name="isAdmin" type="boolean">
+  Whether the user holds super-administrator privileges within the domain. Defaults to `false`. Setting this field requires a super-administrator token.
+</ResponseField>
+
+<ResponseField name="suspended" type="boolean">
+  Whether the account is currently suspended. Suspended users cannot sign in but their data and resource ownership are preserved. Defaults to `false`.
+</ResponseField>
+
+<ResponseField name="creationTime" type="string (ISO 8601)">
+  The UTC timestamp at which the account was created. Read-only; set by the platform.
+</ResponseField>
+
+<ResponseField name="lastLoginTime" type="string (ISO 8601)">
+  The UTC timestamp of the user's most recent successful authentication. Read-only; updated by the platform on each sign-in.
+</ResponseField>
+
+<ResponseField name="orgUnitPath" type="string">
+  The organizational unit the user belongs to, expressed as a POSIX-style path (e.g., `/Teams/Developers`). Controls which policies and restrictions apply to the user.
+</ResponseField>
+
+<ResponseField name="customAttributes" type="object">
+  A map of custom schema fields defined for your domain. Keys are schema names; values are objects whose shape matches the schema definition.
+</ResponseField>
+
+## Resources
+
+A Resource is any persistent object a user creates or stores within a Google service — a Drive file, a Calendar event, a Gmail draft, a Google Doc. Resources form a hierarchy: a Drive folder is a Resource that can contain other Resources; a Google Shared Drive is a Resource that can contain folders. Every Resource carries a globally unique `resourceId`, a MIME type that determines which service owns it, and a set of permission bindings that control who can access it.
+
+<ResponseField name="resourceId" type="string" required>
+  A globally unique identifier for the resource, assigned by the owning service at creation time. Stable for the lifetime of the resource, even across moves and renames.
+</ResponseField>
+
+<ResponseField name="name" type="string" required>
+  The display name of the resource (e.g., a file name or event title). Mutable; changes are reflected immediately in the owning service's UI.
+</ResponseField>
+
+<ResponseField name="mimeType" type="string" required>
+  The MIME type that identifies the resource's type and owning service. For example, `application/vnd.google-apps.document` for Google Docs or `application/vnd.google-apps.folder` for Drive folders.
+</ResponseField>
+
+<ResponseField name="ownerId" type="string" required>
+  The `userId` of the user who currently owns the resource. Ownership can be transferred, but a resource always has exactly one owner.
+</ResponseField>
+
+<ResponseField name="parents" type="array of strings">
+  An ordered list of `resourceId` values representing the resource's parent containers. A Drive file in a folder has one parent; a file in multiple locations (via shortcuts) may have multiple.
+</ResponseField>
+
+<ResponseField name="permissions" type="array of objects">
+  The list of permission bindings on this resource. Each binding contains a `role` (`owner`, `writer`, `commenter`, or `reader`) and a `grantee` (a `userId`, a group email, or `anyone`).
+</ResponseField>
+
+<ResponseField name="createdTime" type="string (ISO 8601)">
+  The UTC timestamp at which the resource was created. Read-only.
+</ResponseField>
+
+<ResponseField name="modifiedTime" type="string (ISO 8601)">
+  The UTC timestamp of the most recent modification to the resource's content or metadata. Read-only; updated by the platform.
+</ResponseField>
+
+<ResponseField name="labels" type="object">
+  A map of arbitrary key-value string pairs you can attach to a resource for filtering and organizational purposes. Keys must be 1–63 characters; values may be empty strings.
+</ResponseField>
+
+<ResponseField name="trashed" type="boolean">
+  Whether the resource has been moved to the trash. Trashed resources are excluded from list results by default but are not deleted until the trash is emptied.
+</ResponseField>
+
+## Webhooks & Events
+
+An Event represents a change notification that Google emits when a watched Resource or collection is modified. Events are delivered to your registered webhook endpoint as HTTP `POST` requests and are not stored by the platform — if your endpoint is unavailable during delivery, the platform retries with exponential back-off for up to 24 hours, after which the notification is discarded. Events are scoped to a **Channel**, which is the registration object that binds a webhook URL to a specific watched resource or collection.
+
+<ResponseField name="kind" type="string" required>
+  Always `api#channel`. Identifies the object type in the response.
+</ResponseField>
+
+<ResponseField name="id" type="string" required>
+  The `channelId` you provided when registering the watch. Use this to correlate incoming notifications with the watch registrations your application manages.
+</ResponseField>
+
+<ResponseField name="resourceId" type="string" required>
+  The opaque identifier of the resource that changed. Corresponds to the `resourceId` of a Resource object.
+</ResponseField>
+
+<ResponseField name="resourceUri" type="string" required>
+  The canonical API URL of the changed resource, ready to use as the target of a follow-up GET request to retrieve the updated state.
+</ResponseField>
+
+<ResponseField name="token" type="string">
+  An arbitrary string you provided at watch registration time, echoed back in every notification. Use this as a shared secret to verify that notifications originate from Google.
+</ResponseField>
+
+<ResponseField name="expiration" type="string (Unix ms)">
+  The Unix timestamp in milliseconds at which the watch channel expires. After this time, no further notifications are delivered. Renew the watch before this deadline.
+</ResponseField>
+
+<ResponseField name="resourceState" type="string" required>
+  Describes the nature of the change. Possible values: `sync` (initial confirmation after watch registration), `exists` (resource exists but was not necessarily modified), `change` (resource content or metadata changed), `trash` (resource was trashed), `untrash` (resource was restored), `remove` (resource was permanently deleted).
+</ResponseField>
+
+## Search Results
+
+A Search Result is the platform's representation of a single item returned by a query to the Search API. It is not a persistent object — it is synthesized on each query from the live index — but its structure is stable and predictable. Each result maps to a web page, a Drive file, or another indexed document, and includes enough metadata for your application to display a rich result without fetching the source document.
+
+<ResponseField name="title" type="string" required>
+  The title of the indexed document, typically sourced from the HTML `<title>` tag or the document's metadata. Plain text; HTML entities are decoded.
+</ResponseField>
+
+<ResponseField name="link" type="string" required>
+  The canonical URL of the indexed document. Always an absolute URL.
+</ResponseField>
+
+<ResponseField name="displayLink" type="string">
+  A human-readable version of the URL, stripped of the protocol and query string, intended for display in search result UIs.
+</ResponseField>
+
+<ResponseField name="snippet" type="string">
+  A short excerpt from the document that matches the query terms. May contain bolded query terms encoded as HTML `<b>` tags. Limit your display to 160 characters if you are rendering in a constrained layout.
+</ResponseField>
+
+<ResponseField name="pagemap" type="object">
+  Structured metadata extracted from the document's markup, organized by type (e.g., `metatags`, `person`, `article`, `product`). Useful for building rich snippets or filtering results by structured attributes.
+</ResponseField>
+
+<ResponseField name="formattedUrl" type="string">
+  The URL as it will appear in a rendered search result, including breadcrumb-style path segments when available.
+</ResponseField>
+
+<ResponseField name="cacheId" type="string">
+  The identifier of Google's cached copy of this document. Pass this to the cache endpoint to retrieve the cached version. Not present for documents that opt out of caching.
+</ResponseField>
+
+## Object Relationships
+
+The four core object types relate to each other in a directed graph. A **User** owns one or more **Resources**; a Resource's `ownerId` field points back to its owning User's `userId`. A **Channel** (the watch registration) references a Resource via `resourceId` and delivers **Events** to your endpoint whenever that Resource changes. Events in turn carry the `resourceId` of the changed Resource, allowing you to fetch the latest state of that Resource with a single GET request.
+
+**Search Results** sit outside this ownership graph: they reference Resources indirectly through the `link` field (which may or may not correspond to a Drive `resourceId`), and they carry no user identity. When a Search Result's `link` matches a Drive file URL, you can extract the file ID from the URL and use it as a `resourceId` to fetch the full Resource object — including permissions and modification history — from the Drive API.
+
+<Note>
+  Google enforces a data retention policy on all platform objects. Deleted Users are purged from the directory after 20 days, after which their `userId` can no longer be used to look up ownership history. Resources owned by a deleted user are transferred to an administrator or deleted, depending on your domain's off-boarding policy. Configure your domain's policy in the Admin console under **Directory → Users → Deletion policy** before deprovisioning accounts.
+</Note>

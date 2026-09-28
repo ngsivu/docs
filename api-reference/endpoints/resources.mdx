@@ -1,0 +1,225 @@
+---
+title: "Google Workspace Resource Management API Reference"
+sidebarTitle: "Resources"
+description: "Create and retrieve files, documents, and data objects in your Google workspace using the Resources REST API, with full request and response docs."
+---
+
+The Resources API lets you programmatically create and list the files, documents, and data objects stored in your Google workspace. Resources are the core unit of content in the platform — every document, spreadsheet, and file you create is represented as a resource with a consistent structure. All resource endpoints require a valid API token with `resources:read` or `resources:write` scopes. Refer to the [Authentication guide](/api-reference/authentication) for instructions on generating and scoping your tokens.
+
+---
+
+## GET /v1/resources
+
+Retrieve a paginated, filterable list of all resources accessible to the authenticated user. You can narrow results by type, owner, status, or custom tags.
+
+### Query Parameters
+
+<ParamField query="page" type="integer" default="1">
+  The page number to retrieve. Starts at `1`.
+</ParamField>
+
+<ParamField query="limit" type="integer" default="20">
+  Number of resources per page. Accepted values: `1`–`100`.
+</ParamField>
+
+<ParamField query="sort" type="string" default="created_at">
+  Field to sort by. Accepted values: `created_at`, `updated_at`, `name`, `size`.
+</ParamField>
+
+<ParamField query="order" type="string" default="desc">
+  Sort direction. Accepted values: `asc`, `desc`.
+</ParamField>
+
+<ParamField query="filter[type]" type="string">
+  Filter by resource type. Accepted values: `document`, `spreadsheet`, `presentation`, `file`.
+</ParamField>
+
+<ParamField query="filter[owner_id]" type="string">
+  Filter to resources owned by a specific user ID. Example: `usr_01HXYZ123456ABCDEF`.
+</ParamField>
+
+<ParamField query="filter[tag]" type="string">
+  Filter by a tag slug applied to the resource. Example: `finance`, `q2-report`.
+</ParamField>
+
+<ParamField query="filter[status]" type="string">
+  Filter by resource status. Accepted values: `active`, `archived`, `trashed`.
+</ParamField>
+
+### Request
+
+```bash title="List Resources"
+curl --request GET \
+  --url 'https://api.google.com/v1/resources?page=1&limit=20&filter[type]=document&sort=updated_at&order=desc' \
+  --header 'Authorization: Bearer YOUR_API_TOKEN' \
+  --header 'Content-Type: application/json'
+```
+
+### Response
+
+```json title="200 OK"
+{
+  "data": [
+    {
+      "id": "res_01HXYZ111222AAABBB",
+      "name": "Q2 Engineering Report",
+      "type": "document",
+      "status": "active",
+      "owner_id": "usr_01HXYZ123456ABCDEF",
+      "size_bytes": 204800,
+      "tags": ["engineering", "q2-report"],
+      "mime_type": "application/vnd.google-apps.document",
+      "web_url": "https://docs.google.com/document/d/abc123/edit",
+      "created_at": "2024-05-01T09:00:00Z",
+      "updated_at": "2024-06-15T14:22:00Z"
+    },
+    {
+      "id": "res_01HXYZ333444CCCDDDD",
+      "name": "Budget Tracker 2024",
+      "type": "spreadsheet",
+      "status": "active",
+      "owner_id": "usr_01HXYZ789012GHIJKL",
+      "size_bytes": 512000,
+      "tags": ["finance"],
+      "mime_type": "application/vnd.google-apps.spreadsheet",
+      "web_url": "https://sheets.google.com/spreadsheets/d/def456/edit",
+      "created_at": "2024-01-10T08:30:00Z",
+      "updated_at": "2024-07-01T10:00:00Z"
+    }
+  ],
+  "meta": {
+    "total": 387,
+    "page": 1,
+    "limit": 20,
+    "total_pages": 20
+  }
+}
+```
+
+### Response Fields
+
+<ResponseField name="data" type="array">
+  Array of resource objects matching the query.
+
+  <Expandable title="Resource object">
+    <ResponseField name="id" type="string">
+      Unique identifier for the resource, prefixed with `res_`.
+    </ResponseField>
+    <ResponseField name="name" type="string">
+      Human-readable name of the resource.
+    </ResponseField>
+    <ResponseField name="type" type="string">
+      Resource type: `document`, `spreadsheet`, `presentation`, or `file`.
+    </ResponseField>
+    <ResponseField name="status" type="string">
+      Current status: `active`, `archived`, or `trashed`.
+    </ResponseField>
+    <ResponseField name="owner_id" type="string">
+      User ID of the resource owner.
+    </ResponseField>
+    <ResponseField name="size_bytes" type="integer">
+      Size of the resource content in bytes.
+    </ResponseField>
+    <ResponseField name="tags" type="array">
+      List of tag slugs applied to the resource.
+    </ResponseField>
+    <ResponseField name="mime_type" type="string">
+      MIME type of the resource content.
+    </ResponseField>
+    <ResponseField name="web_url" type="string">
+      Direct URL to open the resource in the Google web interface.
+    </ResponseField>
+    <ResponseField name="created_at" type="string">
+      ISO 8601 timestamp of resource creation.
+    </ResponseField>
+    <ResponseField name="updated_at" type="string">
+      ISO 8601 timestamp of the most recent modification.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="meta" type="object">
+  Pagination metadata. See [Users — List Users](/api-reference/endpoints/users) for meta field descriptions.
+</ResponseField>
+
+---
+
+## POST /v1/resources
+
+Create a new resource in your workspace. You can create a blank resource of a given type, or seed it with initial content by supplying a `content` body.
+
+### Body Parameters
+
+<ParamField body="name" type="string" required>
+  The display name for the new resource. Must be between 1 and 255 characters.
+</ParamField>
+
+<ParamField body="type" type="string" required>
+  The type of resource to create. Accepted values: `document`, `spreadsheet`, `presentation`, `file`.
+</ParamField>
+
+<ParamField body="parent_folder_id" type="string">
+  ID of the folder to create the resource inside. Omit to place the resource in the root of the authenticated user's Drive.
+</ParamField>
+
+<ParamField body="content" type="string">
+  Initial content for the resource, encoded as a Base64 string. Optional — if omitted, the resource is created blank.
+</ParamField>
+
+<ParamField body="tags" type="array">
+  Array of tag slugs to apply to the new resource at creation time.
+</ParamField>
+
+<ParamField body="metadata" type="object">
+  Optional key-value pairs to attach to the resource for your own reference.
+</ParamField>
+
+### Request
+
+```bash title="Create Resource"
+curl --request POST \
+  --url 'https://api.google.com/v1/resources' \
+  --header 'Authorization: Bearer YOUR_API_TOKEN' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "name": "Product Roadmap H2 2024",
+    "type": "document",
+    "parent_folder_id": "fld_01HXYZ999888ZZZYYY",
+    "tags": ["product", "roadmap"],
+    "metadata": {
+      "team": "product",
+      "quarter": "H2-2024"
+    }
+  }'
+```
+
+### Response
+
+```json title="201 Created"
+{
+  "data": {
+    "id": "res_01HXYZ555666EEEFFF",
+    "name": "Product Roadmap H2 2024",
+    "type": "document",
+    "status": "active",
+    "owner_id": "usr_01HXYZ123456ABCDEF",
+    "size_bytes": 0,
+    "tags": ["product", "roadmap"],
+    "mime_type": "application/vnd.google-apps.document",
+    "web_url": "https://docs.google.com/document/d/ghi789/edit",
+    "metadata": {
+      "team": "product",
+      "quarter": "H2-2024"
+    },
+    "created_at": "2024-07-10T11:00:00Z",
+    "updated_at": "2024-07-10T11:00:00Z"
+  }
+}
+```
+
+### Response Fields
+
+<ResponseField name="data" type="object">
+  The full resource object for the newly created resource. See [List Resources](#get-v1-resources) for a description of all fields.
+</ResponseField>
+

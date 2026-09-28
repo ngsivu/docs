@@ -1,0 +1,359 @@
+---
+title: 'Receive and Handle Real-Time Events via Google Webhooks'
+sidebarTitle: 'Webhooks'
+description: 'Learn how to register webhook endpoints, verify payload signatures, and handle real-time event notifications from Google services reliably.'
+---
+
+Instead of polling the Google API repeatedly to detect changes, webhooks let Google push a notification to your server the moment a relevant event occurs — a file is modified, a user signs in, a resource is created or deleted. Your application receives an HTTP POST request with a structured JSON payload describing exactly what happened, so you can react instantly without wasting quota on empty polls. This guide shows you how to register a webhook endpoint, understand the event payloads, verify that notifications are genuine, and handle delivery failures gracefully.
+
+## How Google Webhooks Work
+
+When you register a webhook (called a **push notification channel** in the Google API), you tell Google: *"When event X happens, POST a payload to this URL."* Google then sends an HTTP POST to your endpoint every time a matching event fires. Your server must:
+
+1. Accept the POST request.
+2. Respond with HTTP `200 OK` within **30 seconds**.
+3. Process the event asynchronously if the work takes longer than 30 seconds.
+4. Verify the signature on every payload before acting on it.
+
+<Info>
+  Google uses the **push notification** model for most of its APIs (Drive, Calendar, Gmail, etc.). The channel-based approach means each subscription has an expiry time. You must renew channels before they expire or you will stop receiving events.
+</Info>
+
+## Register a Webhook Endpoint
+
+Your endpoint must be publicly reachable over HTTPS. Google does not deliver events to plain HTTP endpoints or to localhost.
+
+### Step 1: Expose a Public HTTPS Endpoint
+
+Deploy a small HTTP server with a route to accept incoming events. Here is a complete Node.js (Express) webhook receiver:
+
+```javascript title="webhook-server.js"
+import 'dotenv/config';
+import express from 'express';
+import crypto from 'node:crypto';
+
+const app  = express();
+const PORT = process.env.PORT ?? 3000;
+
+// Parse raw body so we can verify the signature
+app.use(express.raw({ type: 'application/json' }));
+
+app.post('/webhooks/google', (req, res) => {
+  // 1. Verify the signature (see "Verifying Webhook Signatures" below)
+  const signature = req.headers['x-goog-signature'];
+  if (!verifySignature(req.body, signature)) {
+    console.warn('Rejected webhook with invalid signature');
+    return res.status(401).send('Invalid signature');
+  }
+
+  // 2. Acknowledge receipt immediately
+  res.status(200).send('OK');
+
+  // 3. Process asynchronously
+  const event = JSON.parse(req.body);
+  processEvent(event).catch((err) => console.error('Event processing failed:', err));
+});
+
+function processEvent(event) {
+  console.log(`Received event: ${event.kind} — resource ${event.resourceId}`);
+  // Add your business logic here
+  return Promise.resolve();
+}
+
+app.listen(PORT, () => {
+  console.log(`Webhook server listening on port ${PORT}`);
+});
+```
+
+### Step 2: Register a Push Notification Channel
+
+Call the `watch` endpoint for the Google API you want to subscribe to. The example below watches a Google Drive file for changes:
+
+```javascript title="register-webhook.js"
+import 'dotenv/config';
+import axios from 'axios';
+import { randomUUID } from 'node:crypto';
+
+const apiKey     = process.env.GOOGLE_API_KEY;
+const fileId     = process.env.DRIVE_FILE_ID;     // ID of the file to watch
+const webhookUrl = process.env.WEBHOOK_URL;       // Your public HTTPS endpoint
+
+const response = await axios.post(
+  `https://www.googleapis.com/drive/v3/files/${fileId}/watch`,
+  {
+    id:      randomUUID(),              // Unique channel ID you choose
+    type:    'web_hook',
+    address: webhookUrl,
+    expiration: Date.now() + 7 * 24 * 60 * 60 * 1000, // 7 days from now (ms)
+  },
+  {
+    headers: { Authorization: `Bearer ${apiKey}` },
+  }
+);
+
+console.log('Channel registered:', response.data);
+// Save response.data.id and response.data.resourceId — you need them to stop the channel
+```
+
+```python title="register_webhook.py"
+import os
+import uuid
+import time
+import requests
+from dotenv import load_dotenv
+
+load_dotenv()
+
+api_key     = os.getenv("GOOGLE_API_KEY")
+file_id     = os.getenv("DRIVE_FILE_ID")
+webhook_url = os.getenv("WEBHOOK_URL")
+
+payload = {
+    "id":         str(uuid.uuid4()),
+    "type":       "web_hook",
+    "address":    webhook_url,
+    "expiration": int((time.time() + 7 * 24 * 60 * 60) * 1000),  # 7 days, in ms
+}
+
+response = requests.post(
+    f"https://www.googleapis.com/drive/v3/files/{file_id}/watch",
+    json=payload,
+    headers={"Authorization": f"Bearer {api_key}"},
+)
+response.raise_for_status()
+print("Channel registered:", response.json())
+```
+
+<Note>
+  Save the `id` and `resourceId` returned by the `watch` call. You need both values to stop the channel when you no longer need notifications, or before renewing it.
+</Note>
+
+## Webhook Event Types and Payload Structure
+
+Google sends different notification shapes depending on the API. Most Drive-based notifications look like this:
+
+```json title="Example Drive notification payload"
+{
+  "kind":           "drive#change",
+  "id":             "channel-id-you-provided",
+  "resourceId":     "o3hgv1538sdjfh",
+  "resourceUri":    "https://www.googleapis.com/drive/v3/files/1a2b3c",
+  "token":          "target=myApp",
+  "expiration":     "1611875712000",
+  "type":           "sync",
+  "resource":       {
+    "kind":         "drive#file",
+    "id":           "1a2b3c",
+    "name":         "Q4 Report.pdf",
+    "mimeType":     "application/pdf",
+    "modifiedTime": "2024-01-15T09:32:00.000Z"
+  }
+}
+```
+
+The notification headers are equally important — Google sets several custom headers on every delivery:
+
+| Header | Description |
+|---|---|
+| `X-Goog-Channel-ID` | The `id` you provided when registering the channel |
+| `X-Goog-Channel-Token` | The optional `token` you set when registering |
+| `X-Goog-Channel-Expiration` | UTC timestamp when this channel expires |
+| `X-Goog-Resource-ID` | Opaque ID for the watched resource |
+| `X-Goog-Resource-URI` | The API URL of the watched resource |
+| `X-Goog-Resource-State` | The event type (e.g. `sync`, `update`, `add`, `remove`, `trash`) |
+| `X-Goog-Signature` | HMAC-SHA256 signature for payload verification |
+| `X-Goog-Message-Number` | Incrementing counter per channel — useful for deduplication |
+
+### Common Resource States
+
+| State | Description |
+|---|---|
+| `sync` | Confirmation message sent when the channel is first registered |
+| `add` | A new resource was created |
+| `update` | An existing resource was modified |
+| `remove` | A resource was deleted or moved out of scope |
+| `trash` | A resource was moved to the trash |
+| `untrash` | A resource was restored from the trash |
+| `change` | A generic change occurred (used by some APIs) |
+
+## Verifying Webhook Signatures
+
+Verifying the signature on every incoming webhook request is critical. Without verification, a malicious actor could send forged payloads to your endpoint and trick your application into taking unintended actions.
+
+Google signs each delivery using HMAC-SHA256 with a shared secret you set when registering the channel. Here is the complete verification logic:
+
+```javascript title="verify-signature.js"
+import crypto from 'node:crypto';
+
+/**
+ * Verify the X-Goog-Signature header against the raw request body.
+ *
+ * @param {Buffer} rawBody   - The raw (unparsed) request body
+ * @param {string} signature - The value of the X-Goog-Signature header
+ * @returns {boolean}
+ */
+export function verifySignature(rawBody, signature) {
+  if (!signature) return false;
+
+  const secret         = process.env.GOOGLE_WEBHOOK_SECRET;
+  const expectedHmac   = crypto
+    .createHmac('sha256', secret)
+    .update(rawBody)
+    .digest('base64');
+
+  // Use timingSafeEqual to prevent timing attacks
+  const expected = Buffer.from(expectedHmac);
+  const received = Buffer.from(signature);
+
+  if (expected.length !== received.length) return false;
+  return crypto.timingSafeEqual(expected, received);
+}
+```
+
+```python title="verify_signature.py"
+import os
+import hmac
+import hashlib
+import base64
+
+def verify_signature(raw_body: bytes, signature: str) -> bool:
+    """
+    Verify the X-Goog-Signature header against the raw request body.
+
+    Args:
+        raw_body:  The raw bytes of the request body.
+        signature: The value of the X-Goog-Signature header.
+
+    Returns:
+        True if the signature is valid, False otherwise.
+    """
+    if not signature:
+        return False
+
+    secret = os.getenv("GOOGLE_WEBHOOK_SECRET", "").encode()
+    expected = base64.b64encode(
+        hmac.new(secret, raw_body, hashlib.sha256).digest()
+    ).decode()
+
+    return hmac.compare_digest(expected, signature)
+```
+
+<Warning>
+  Always use a constant-time comparison function (`crypto.timingSafeEqual` in Node.js, `hmac.compare_digest` in Python) when comparing signatures. Standard string equality (`===`, `==`) is vulnerable to timing attacks that can allow an attacker to forge valid signatures.
+</Warning>
+
+## Retry Behavior and Error Handling
+
+If your endpoint returns a non-`2xx` response or does not respond within 30 seconds, Google treats the delivery as failed and retries with exponential backoff.
+
+- **Retry schedule:** Google retries failed deliveries at approximately 1 s, 2 s, 4 s, 8 s, … up to a maximum of 3 attempts in most APIs.
+- **Channel termination:** If your endpoint repeatedly fails (depending on the API, typically over 24 hours of continuous failures), Google may disable the channel. You will need to re-register it.
+- **Deduplication:** Use the `X-Goog-Message-Number` header to detect and discard duplicate deliveries. Store the last-seen message number per channel in your database.
+
+```javascript title="idempotent-handler.js"
+import 'dotenv/config';
+import express from 'express';
+import { verifySignature } from './verify-signature.js';
+
+const app             = express();
+const processedEvents = new Map(); // In production, use a persistent store (Redis, DB)
+
+app.use(express.raw({ type: 'application/json' }));
+
+app.post('/webhooks/google', async (req, res) => {
+  const signature   = req.headers['x-goog-signature'];
+  const channelId   = req.headers['x-goog-channel-id'];
+  const msgNumber   = parseInt(req.headers['x-goog-message-number'] ?? '0', 10);
+
+  if (!verifySignature(req.body, signature)) {
+    return res.status(401).send('Invalid signature');
+  }
+
+  // Deduplicate
+  const lastSeen = processedEvents.get(channelId) ?? -1;
+  if (msgNumber <= lastSeen) {
+    console.log(`Skipping duplicate message ${msgNumber} on channel ${channelId}`);
+    return res.status(200).send('OK (duplicate)');
+  }
+  processedEvents.set(channelId, msgNumber);
+
+  // Acknowledge before processing
+  res.status(200).send('OK');
+
+  const event = JSON.parse(req.body);
+  try {
+    await handleEvent(event, req.headers);
+  } catch (err) {
+    console.error('Failed to process event:', err);
+    // Log for manual inspection — do NOT return 5xx (already sent 200)
+  }
+});
+
+async function handleEvent(event, headers) {
+  const state = headers['x-goog-resource-state'];
+  console.log(`Processing ${state} event for resource ${headers['x-goog-resource-id']}`);
+  // Dispatch to appropriate handler based on state
+}
+
+app.listen(3000, () => console.log('Webhook server running on :3000'));
+```
+
+## Renewing Expiring Channels
+
+Most Google push notification channels expire. Check the `X-Goog-Channel-Expiration` header on incoming events and renew the channel before it expires to avoid gaps in coverage.
+
+```javascript title="renew-channel.js"
+import 'dotenv/config';
+import axios from 'axios';
+import { randomUUID } from 'node:crypto';
+
+/**
+ * Stop the current channel and immediately register a new one.
+ */
+async function renewChannel(oldChannelId, resourceId, fileId) {
+  const apiKey = process.env.GOOGLE_API_KEY;
+
+  // Stop the old channel
+  await axios.post(
+    'https://www.googleapis.com/drive/v3/channels/stop',
+    { id: oldChannelId, resourceId },
+    { headers: { Authorization: `Bearer ${apiKey}` } }
+  );
+
+  // Register a new channel
+  const response = await axios.post(
+    `https://www.googleapis.com/drive/v3/files/${fileId}/watch`,
+    {
+      id:         randomUUID(),
+      type:       'web_hook',
+      address:    process.env.WEBHOOK_URL,
+      expiration: Date.now() + 7 * 24 * 60 * 60 * 1000,
+    },
+    { headers: { Authorization: `Bearer ${apiKey}` } }
+  );
+
+  console.log('Channel renewed:', response.data.id);
+  return response.data;
+}
+```
+
+<Tip>
+  Test your webhook handler locally using [ngrok](https://ngrok.com) or [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/). Both tools create a secure public HTTPS URL that tunnels to your local server, so you can iterate without deploying. Start your server, run `ngrok http 3000`, and use the generated URL as your `WEBHOOK_URL` when registering the channel. Remember to re-register the channel whenever ngrok gives you a new URL.
+</Tip>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Authentication" icon="key" href="/guides/authentication">
+    Understand how API keys and channel secrets work together to secure your webhooks.
+  </Card>
+  <Card title="Configuration" icon="sliders" href="/guides/configuration">
+    Fine-tune response formats and locale settings for the events you receive.
+  </Card>
+  <Card title="Webhook Endpoints Reference" icon="code" href="/api-reference/endpoints/webhooks">
+    Explore the full webhook registration and management API reference.
+  </Card>
+  <Card title="Troubleshooting" icon="wrench" href="/troubleshooting">
+    Debug common webhook delivery failures, signature errors, and channel expiry issues.
+  </Card>
+</CardGroup>

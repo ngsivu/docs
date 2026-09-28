@@ -1,0 +1,308 @@
+---
+title: "Troubleshoot Common Google API and Platform Issues"
+sidebarTitle: "Troubleshooting"
+description: "Diagnose and fix common Google API errors — 401s, 403s, 429s, 500s, and network timeouts — with clear, actionable step-by-step resolution guidance."
+---
+
+Even well-written integrations encounter errors. This guide walks you through the most common error categories you will see when working with Google APIs, explains what causes each one, and shows you exactly how to fix it. Use the sections below to identify your error code, understand its root cause, and apply the appropriate resolution. For billing, account management, or general product questions, see the [FAQ](/faq) page instead.
+
+<Tip>
+  Enable debug logging in your HTTP client or Google client library to capture the full request URL, headers, and response body for every API call. This context is invaluable when diagnosing unexpected errors and is required when opening a support case.
+
+  ```python title="enable_debug_logging.py"
+  import logging
+  import http.client
+
+  # Log full HTTP request and response details
+  http.client.HTTPConnection.debuglevel = 1
+  logging.basicConfig(level=logging.DEBUG)
+  logging.getLogger("urllib3").setLevel(logging.DEBUG)
+  ```
+</Tip>
+
+## Authentication Errors
+
+<Accordion title="401 Unauthorized — Invalid or missing credentials">
+  A `401 Unauthorized` response means the API could not verify your identity. The request either contained no credentials or the credentials it contained were rejected.
+
+  **Common causes:**
+
+  - The `Authorization` header is missing from the request entirely.
+  - The API key or OAuth access token has been deleted, revoked, or never existed.
+  - An OAuth token has expired (access tokens typically expire after 3,600 seconds).
+  - You are using an API key in a context that requires OAuth 2.0 (e.g., accessing user-owned data).
+
+  **Resolution steps:**
+
+  1. Confirm that your request includes the `Authorization: Bearer <token>` header, or the `key=<api_key>` query parameter for key-based APIs.
+  2. Check the Google Cloud Console under **APIs & Services → Credentials** to verify the credential still exists and has not been revoked.
+  3. If you are using OAuth 2.0, check the token expiry time (`expires_in` field in the token response) and refresh the access token using your refresh token before it expires.
+  4. Verify that the credential belongs to the correct Google Cloud project and is enabled for the API you are calling.
+
+  ```python title="oauth_refresh.py"
+  from google.oauth2.credentials import Credentials
+  from google.auth.transport.requests import Request
+
+  def get_valid_credentials(creds: Credentials) -> Credentials:
+      """Refresh the access token if it has expired."""
+      if creds.expired and creds.refresh_token:
+          creds.refresh(Request())
+      return creds
+  ```
+</Accordion>
+
+<Accordion title="403 Forbidden — Insufficient permissions or API not enabled">
+  A `403 Forbidden` response means the server understood your request and verified your identity, but your credentials do not have permission to perform the requested action.
+
+  **Common causes:**
+
+  - The API is not enabled for your project. Every API must be explicitly enabled in the Cloud Console before you can call it.
+  - Your OAuth scope does not include the permission required by the endpoint. For example, calling a write endpoint with a read-only scope.
+  - Your service account or user account lacks the necessary IAM role on the resource.
+  - An API key restriction (HTTP referrer, IP address, or API restriction) is blocking the request.
+
+  **Resolution steps:**
+
+  1. **Enable the API:** Go to **APIs & Services → Library** in the Cloud Console, search for the API, and click **Enable**.
+  2. **Check OAuth scopes:** Review the scopes you requested during the OAuth flow and compare them with the scopes listed in the endpoint's reference documentation.
+  3. **Grant the IAM role:** Navigate to **IAM & Admin → IAM**, find the service account or user, and add the minimum required role (e.g., `roles/storage.objectViewer` for read access to Cloud Storage).
+  4. **Review API key restrictions:** Open the credential in the Cloud Console and confirm that the allowed APIs list includes the one you are calling and that IP or referrer restrictions are not blocking your client.
+
+  ```bash title="check_iam_policy.sh"
+  # List IAM bindings for a project
+  gcloud projects get-iam-policy YOUR_PROJECT_ID \
+    --format="table(bindings.role, bindings.members)"
+  ```
+</Accordion>
+
+## Rate Limiting
+
+<Accordion title="429 Too Many Requests — Quota exceeded">
+  A `429 Too Many Requests` response means you have exceeded one of your API quotas — either requests per minute, requests per day, or a resource-specific limit such as characters processed or bytes transferred.
+
+  **Common causes:**
+
+  - Sending requests in a tight loop without any back-off or throttling.
+  - A sudden traffic spike in your application that creates a burst of concurrent API calls.
+  - Multiple services or environments (staging and production) sharing the same API key and quota pool.
+  - A quota set too low for your current workload.
+
+  **Resolution steps:**
+
+  1. **Read the `Retry-After` header** returned with the 429 response. It specifies how many seconds to wait before retrying.
+  2. **Implement exponential back-off with jitter** to spread out retries and avoid a thundering-herd effect.
+  3. **Check your quota usage** in the Cloud Console under **APIs & Services → Quotas** and request an increase if you consistently approach the limit.
+  4. **Use separate projects** for staging and production so their quotas are isolated.
+
+  ```python title="exponential_backoff.py"
+  import time
+  import random
+  import requests
+
+  def call_with_backoff(url: str, params: dict, max_retries: int = 5) -> dict:
+      """Call an API endpoint with exponential back-off on 429 responses."""
+      for attempt in range(max_retries):
+          response = requests.get(url, params=params)
+
+          if response.status_code == 429:
+              retry_after = int(response.headers.get("Retry-After", 2 ** attempt))
+              jitter = random.uniform(0, 1)
+              wait = retry_after + jitter
+              print(f"Rate limited. Retrying in {wait:.1f}s (attempt {attempt + 1}/{max_retries})")
+              time.sleep(wait)
+              continue
+
+          response.raise_for_status()
+          return response.json()
+
+      raise RuntimeError("Max retries exceeded after repeated 429 responses.")
+  ```
+</Accordion>
+
+## Not Found Errors
+
+<Accordion title="404 Not Found — Resource does not exist or URL is wrong">
+  A `404 Not Found` response means the server could not locate the resource at the URL you requested. This is usually a client-side error caused by an incorrect path or a reference to a resource that has been deleted.
+
+  **Common causes:**
+
+  - A typo in the resource ID, path segment, or query parameter.
+  - The resource was deleted between the time you retrieved its ID and the time you made the current request.
+  - You are using the wrong API version prefix in the URL (e.g., `/v1/` vs `/v2/`).
+  - The resource exists in a different project or region than the one specified in your request.
+  - Trailing slashes or URL encoding issues (e.g., an unescaped `/` inside a resource name).
+
+  **Resolution steps:**
+
+  1. Double-check the full request URL against the API reference documentation for that endpoint.
+  2. Confirm the resource ID by fetching the parent resource (e.g., list all items in a collection before fetching a specific one).
+  3. Verify you are targeting the correct API version.
+  4. Check that the resource belongs to the project and region configured in your client.
+
+  ```python title="safe_get.py"
+  import requests
+
+  def safe_get_resource(resource_id: str, api_key: str) -> dict | None:
+      """Fetch a resource and handle 404 gracefully."""
+      url = f"https://www.googleapis.com/example/v1/resources/{resource_id}"
+      response = requests.get(url, params={"key": api_key})
+
+      if response.status_code == 404:
+          print(f"Resource '{resource_id}' not found. It may have been deleted.")
+          return None
+
+      response.raise_for_status()
+      return response.json()
+  ```
+</Accordion>
+
+## Server Errors
+
+<Accordion title="500 Internal Server Error — Unexpected failure on Google's side">
+  A `500 Internal Server Error` indicates that something went wrong on Google's infrastructure — not in your request. These errors are transient in the vast majority of cases and resolve on their own within seconds to minutes.
+
+  **Common causes:**
+
+  - A temporary internal failure in the Google backend handling your request.
+  - A recently deployed change that introduced a regression (usually resolved quickly).
+  - Very rarely, a sustained incident affecting a Google service or region.
+
+  **Resolution steps:**
+
+  1. **Retry with exponential back-off.** A 500 does not mean your request was invalid; retrying it after a short wait usually succeeds.
+  2. **Check the [Google Cloud Status Dashboard](https://status.cloud.google.com)** for active incidents affecting the service you are using.
+  3. **Review your request payload** to rule out an edge case in your data that may be triggering a server-side bug. Try simplifying the request to isolate the cause.
+  4. If the error persists for more than 10–15 minutes, open a support case with the full request/response details and the approximate timestamp.
+
+  ```python title="retry_on_server_error.py"
+  import time
+  import requests
+
+  RETRYABLE_STATUS_CODES = {500, 502, 503, 504}
+
+  def resilient_request(url: str, params: dict, max_retries: int = 4) -> dict:
+      """Retry server-side errors with exponential back-off."""
+      for attempt in range(max_retries):
+          response = requests.get(url, params=params)
+
+          if response.status_code in RETRYABLE_STATUS_CODES:
+              wait = (2 ** attempt) + 0.5
+              print(f"Server error {response.status_code}. Retrying in {wait}s...")
+              time.sleep(wait)
+              continue
+
+          response.raise_for_status()
+          return response.json()
+
+      raise RuntimeError(f"Request failed after {max_retries} retries.")
+  ```
+</Accordion>
+
+<Accordion title="503 Service Unavailable — Service is temporarily overloaded or down">
+  A `503 Service Unavailable` response means the Google service is temporarily unable to handle your request, typically because it is overloaded or undergoing maintenance. Like 500 errors, these are transient.
+
+  **Common causes:**
+
+  - The backend service is at capacity and shedding excess load.
+  - A rolling deployment or maintenance window is in progress.
+  - A regional outage is affecting availability.
+
+  **Resolution steps:**
+
+  1. Apply the same exponential back-off retry strategy as for 500 errors.
+  2. If your application is latency-sensitive, implement a **circuit breaker pattern**: stop sending requests to an endpoint after a configurable number of consecutive failures and resume after a cooldown period.
+  3. Consider switching to a different region if your use case supports it and the outage is regional.
+  4. Subscribe to service health notifications on the [Google Cloud Status Dashboard](https://status.cloud.google.com) to receive alerts when incidents are detected and resolved.
+</Accordion>
+
+## Network and Timeout Issues
+
+<Accordion title="Connection timeouts and read timeouts">
+  Timeout errors occur when your client gives up waiting for a response from the server. They are distinct from HTTP error codes — they happen at the transport layer before any response is received.
+
+  **Common causes:**
+
+  - A network route between your client and Google's servers is slow or intermittently dropping packets.
+  - Your request is processing a very large payload (e.g., a bulk export or a complex query) that takes longer than your client's default timeout.
+  - Misconfigured firewall rules or proxy servers are silently dropping connections.
+  - DNS resolution failures prevent your client from reaching the API endpoint.
+
+  **Resolution steps:**
+
+  1. **Set explicit timeout values** in your HTTP client rather than relying on defaults, which are often too short for long-running operations.
+  2. **Use separate connect and read timeouts**: a short connect timeout (5–10 seconds) catches routing failures quickly, while a longer read timeout (30–120 seconds) accommodates complex queries.
+  3. **Retry on timeout** using the same exponential back-off pattern used for 5xx errors.
+  4. **Test connectivity** by running a simple `curl` or `ping` to the API host from your deployment environment to rule out network-level issues.
+
+  ```python title="timeout_handling.py"
+  import requests
+  from requests.exceptions import Timeout, ConnectionError
+
+  def fetch_with_timeout(url: str, params: dict) -> dict:
+      """Make an API request with explicit timeouts and timeout handling."""
+      try:
+          # (connect_timeout, read_timeout) in seconds
+          response = requests.get(url, params=params, timeout=(10, 60))
+          response.raise_for_status()
+          return response.json()
+
+      except Timeout:
+          print("The request timed out. Check your network and increase the timeout if needed.")
+          raise
+
+      except ConnectionError as e:
+          print(f"A network error occurred: {e}")
+          raise
+  ```
+
+  ```bash title="connectivity_check.sh"
+  # Test DNS resolution and TCP connectivity to the API host
+  nslookup www.googleapis.com
+  curl -v --max-time 10 https://www.googleapis.com/
+  ```
+</Accordion>
+
+<Accordion title="SSL/TLS certificate errors">
+  SSL errors occur when your client cannot establish a secure connection to a Google API endpoint. These almost always indicate a client-side configuration problem rather than an issue with Google's servers.
+
+  **Common causes:**
+
+  - An outdated system certificate store that does not include Google's current root CA.
+  - SSL inspection by a corporate proxy that replaces Google's certificate with a self-signed one not trusted by your application.
+  - Explicitly disabled certificate verification in your code (a common — and dangerous — debugging shortcut left in production).
+  - Clock skew on your server causing certificate validity checks to fail.
+
+  **Resolution steps:**
+
+  1. **Update your certificate store.** On Linux, run `sudo update-ca-certificates`. On macOS and Windows, update your OS.
+  2. **Never disable SSL verification in production.** If you see `verify=False` or `ssl._create_unverified_context()` in your code, remove it immediately.
+  3. **Configure your corporate proxy's CA certificate** in your HTTP client or runtime environment so the proxy's certificate chain is trusted.
+  4. **Check your system clock.** An NTP drift of more than a few minutes can cause certificate validation failures.
+
+  <Warning>
+    Disabling TLS certificate verification (`verify=False`) exposes your application to man-in-the-middle attacks and must never be used in production code. If you are doing this to work around an error, fix the underlying certificate issue instead.
+  </Warning>
+</Accordion>
+
+## Contact Support
+
+If you have worked through the steps above and your issue persists, Google offers several support channels depending on your plan and product:
+
+<CardGroup cols={2}>
+  <Card title="Google Cloud Support" icon="cloud" href="https://cloud.google.com/support">
+    Open a support case directly from the Google Cloud Console. Available on Basic (free), Standard, Enhanced, and Premium plans. Premium support includes a 15-minute response SLA for P1 incidents.
+  </Card>
+  <Card title="Cloud Status Dashboard" icon="signal" href="https://status.cloud.google.com">
+    Check for active incidents and service disruptions across all Google Cloud products and regions. Subscribe to email or RSS notifications for services you depend on.
+  </Card>
+  <Card title="Stack Overflow" icon="stack-overflow" href="https://stackoverflow.com/questions/tagged/google-cloud-platform">
+    Ask technical questions on Stack Overflow using the relevant product tags. Google engineers and community experts actively monitor these tags.
+  </Card>
+  <Card title="Issue Tracker" icon="bug" href="https://issuetracker.google.com">
+    File bug reports and feature requests for Google APIs and developer tools. Search for existing issues before filing to avoid duplicates and to upvote known bugs.
+  </Card>
+</CardGroup>
+
+<Note>
+  When contacting support, always include your **project ID**, the **API name and version**, the **full error message and response body**, the **request timestamp** (in UTC), and a **minimal reproducible example** of the failing request. This information significantly reduces the time to resolution.
+</Note>

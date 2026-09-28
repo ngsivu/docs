@@ -1,0 +1,209 @@
+---
+title: 'Authenticate API Requests to Google Services Securely'
+sidebarTitle: 'Authentication'
+description: 'Learn how to generate, use, rotate, and revoke API keys to securely authenticate every request your application makes to the Google platform.'
+---
+
+Every request you send to the Google API must include a valid credential so the platform can identify your application, enforce your plan's rate limits, and protect your data. Google's primary authentication mechanism is **API key-based authentication** — a secret token you include with each request, either as an HTTP header or a query parameter. This guide covers how to obtain your key, how to pass it correctly, and how to keep it secure throughout the lifecycle of your integration.
+
+## Obtain an API Key
+
+You generate API keys from the Google Cloud Console. Each key is tied to your account and can be scoped, restricted, and revoked independently.
+
+<Steps>
+  <Step title="Open the Google Cloud Console">
+    Navigate to [console.cloud.google.com](https://console.cloud.google.com) and sign in with your Google account. If this is your first time, accept the terms of service and create your first project.
+  </Step>
+
+  <Step title="Select or Create a Project">
+    Click the project selector at the top of the page. Choose an existing project or click **New Project**, give it a name, and click **Create**. API keys are scoped to a project, so make sure you are in the right one.
+  </Step>
+
+  <Step title="Enable the Required API">
+    In the left sidebar, navigate to **APIs & Services → Library**. Search for the API you want to use (for example, *Google Drive API* or *Google Search API*), open it, and click **Enable**. You must enable an API before a key can be used to call it.
+  </Step>
+
+  <Step title="Create the API Key">
+    Go to **APIs & Services → Credentials**, click **Create Credentials**, and select **API key**. Google generates the key immediately and displays it in a dialog. Copy it now — you will not be shown the full key value again.
+  </Step>
+
+  <Step title="Restrict the Key (Recommended)">
+    Click **Edit API key** in the dialog (or find the key later under **Credentials** and click the pencil icon). Set:
+    - **Application restrictions** — limit the key to specific IP addresses, HTTP referrers, or Android/iOS apps.
+    - **API restrictions** — restrict the key to only the APIs it needs to call.
+
+    Restricting keys limits the damage if a key is ever accidentally exposed.
+  </Step>
+</Steps>
+
+<Warning>
+  Never embed your API key in client-side code (browser JavaScript, mobile apps, or public repositories). Anyone who can read your source can steal your key, make API calls on your behalf, and exhaust your quota. Always load keys from environment variables or a server-side secrets manager.
+</Warning>
+
+## Pass the API Key in Requests
+
+Google accepts your API key in two ways. The `Authorization` header is preferred for server-to-server calls; the query parameter is occasionally required by certain endpoints.
+
+### Authorization Header (Recommended)
+
+Include the key in the `Authorization` header using the `Bearer` scheme:
+
+<CodeGroup>
+```bash title="curl"
+curl -X GET "https://www.googleapis.com/drive/v3/files" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json"
+```
+
+```javascript title="request.js"
+import 'dotenv/config';
+import axios from 'axios';
+
+const response = await axios.get('https://www.googleapis.com/drive/v3/files', {
+  headers: {
+    Authorization: `Bearer ${process.env.GOOGLE_API_KEY}`,
+    'Content-Type': 'application/json',
+  },
+});
+
+console.log(response.data);
+```
+
+```python title="request.py"
+import os
+import requests
+from dotenv import load_dotenv
+
+load_dotenv()
+
+response = requests.get(
+    "https://www.googleapis.com/drive/v3/files",
+    headers={
+        "Authorization": f"Bearer {os.getenv('GOOGLE_API_KEY')}",
+        "Content-Type": "application/json",
+    },
+)
+response.raise_for_status()
+print(response.json())
+```
+</CodeGroup>
+
+### Query Parameter (Alternative)
+
+Pass the key as a `key` query parameter when the endpoint requires it or when you cannot set custom headers:
+
+<CodeGroup>
+```bash title="curl"
+curl -X GET "https://www.googleapis.com/drive/v3/files?key=YOUR_API_KEY"
+```
+
+```javascript title="query-param.js"
+import 'dotenv/config';
+import axios from 'axios';
+
+const response = await axios.get('https://www.googleapis.com/drive/v3/files', {
+  params: {
+    key: process.env.GOOGLE_API_KEY,
+  },
+});
+
+console.log(response.data);
+```
+
+```python title="query_param.py"
+import os
+import requests
+from dotenv import load_dotenv
+
+load_dotenv()
+
+response = requests.get(
+    "https://www.googleapis.com/drive/v3/files",
+    params={"key": os.getenv("GOOGLE_API_KEY")},
+)
+response.raise_for_status()
+print(response.json())
+```
+</CodeGroup>
+
+<Note>
+  Avoid passing API keys as query parameters in browser environments — they appear in server logs, browser history, and HTTP referrer headers. Use the `Authorization` header exclusively for server-side requests.
+</Note>
+
+## Rotate and Revoke Keys
+
+Rotate your API keys regularly and whenever you suspect a key may have been compromised.
+
+### Rotate a Key
+
+1. Go to **APIs & Services → Credentials** in the Google Cloud Console.
+2. Click the pencil icon next to the key you want to rotate.
+3. Click **Regenerate key** and confirm. A new key value is issued immediately.
+4. Update your application's environment variable or secrets manager with the new value.
+5. Deploy your updated configuration before the old key is revoked.
+
+### Revoke a Key
+
+1. Go to **APIs & Services → Credentials**.
+2. Click the delete (trash) icon next to the key.
+3. Confirm deletion. The key stops working immediately — make sure your application is already using a replacement key before you revoke the old one.
+
+<Tip>
+  Set a calendar reminder to rotate your API keys every 90 days. For high-traffic production applications, consider automating key rotation using Google Cloud Secret Manager and a scheduled Cloud Function.
+</Tip>
+
+## Common Authentication Errors
+
+<Accordion title="401 Unauthorized — Invalid API key">
+  Your request was rejected because the API key is missing, malformed, or has been revoked.
+
+  **How to fix:**
+  - Confirm the key is present in every request (header or query param).
+  - Check that the key has not been deleted or regenerated in the Cloud Console.
+  - Verify you are using the correct key for the correct project.
+  - Make sure no extra whitespace or characters were introduced when copying the key.
+</Accordion>
+
+<Accordion title="403 Forbidden — API not enabled or key restricted">
+  Your key is valid, but it is not permitted to call the requested API.
+
+  **How to fix:**
+  - Go to **APIs & Services → Library**, find the API, and click **Enable**.
+  - If you have set API restrictions on the key, make sure the target API is in the allowed list under **APIs & Services → Credentials → Edit API key**.
+  - If you have set application restrictions (IP or referrer), confirm the request originates from an allowed source.
+</Accordion>
+
+<Accordion title="429 Too Many Requests — Quota exceeded">
+  You have exceeded the number of requests allowed in a given time window.
+
+  **How to fix:**
+  - Check your current quota usage in **APIs & Services → Quotas**.
+  - Implement exponential backoff in your retry logic, honoring the `Retry-After` response header.
+  - Request a quota increase from the Cloud Console if your use case requires a higher limit.
+  - Use the `fields` parameter to reduce the number of redundant calls by fetching only the data you need.
+</Accordion>
+
+<Accordion title="400 Bad Request — Malformed authorization header">
+  The `Authorization` header is present but not formatted correctly.
+
+  **How to fix:**
+  - Ensure the header value is exactly `Bearer YOUR_API_KEY` with a single space between `Bearer` and the key, and no trailing characters.
+  - Confirm the `Content-Type: application/json` header is also included for POST/PUT/PATCH requests.
+</Accordion>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="First Integration" icon="rocket" href="/guides/first-integration">
+    Put your API key to use and build a working integration end to end.
+  </Card>
+  <Card title="Configuration" icon="sliders" href="/guides/configuration">
+    Tune API settings, rate limits, and response formats to fit your application.
+  </Card>
+  <Card title="Webhooks" icon="bolt" href="/guides/webhooks">
+    Authenticate and verify incoming webhook payloads from Google.
+  </Card>
+  <Card title="API Reference" icon="code" href="/api-reference/authentication">
+    See the full authentication specification in the API reference.
+  </Card>
+</CardGroup>

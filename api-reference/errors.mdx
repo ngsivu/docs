@@ -1,0 +1,356 @@
+---
+title: 'Google REST API: Error Codes and HTTP Response Guide'
+sidebarTitle: 'Errors'
+description: 'Understand every HTTP status code returned by the Google REST API, error response structure, and how to handle failures gracefully in code.'
+---
+
+The Google REST API uses standard HTTP status codes to communicate the outcome of every request. Codes in the `2xx` range indicate success, codes in the `4xx` range indicate a problem with your request (such as missing parameters, invalid credentials, or a resource that does not exist), and codes in the `5xx` range indicate a problem on Google's servers. In all error cases the API returns a consistent JSON body so your application can parse and react to failures programmatically.
+
+## Error Response Format
+
+Every error response includes a JSON body with the same shape, regardless of the status code. Here is an example of a `400 Bad Request` error:
+
+```json
+{
+  "error": {
+    "code": "validation_error",
+    "message": "The 'email' field must be a valid email address.",
+    "status": 400,
+    "request_id": "req_01HXYZ9876FEDCBA",
+    "details": [
+      {
+        "field": "email",
+        "issue": "invalid_format",
+        "received": "not-an-email"
+      }
+    ]
+  }
+}
+```
+
+### Error Response Fields
+
+<ResponseField name="error" type="object" required>
+  The top-level wrapper object present on every error response.
+
+  <Expandable title="error fields">
+    <ResponseField name="code" type="string" required>
+      A machine-readable error code that identifies the specific type of failure. Use this field to drive conditional error-handling logic in your application rather than parsing the human-readable `message`.
+
+      **Example:** `"validation_error"`, `"not_found"`, `"rate_limit_exceeded"`
+    </ResponseField>
+
+    <ResponseField name="message" type="string" required>
+      A human-readable description of the error suitable for logging and debugging. Do not display this string directly to end users without sanitizing it first.
+
+      **Example:** `"The 'email' field must be a valid email address."`
+    </ResponseField>
+
+    <ResponseField name="status" type="integer" required>
+      The HTTP status code of the response, mirrored inside the body for clients that cannot easily access response headers.
+
+      **Example:** `400`
+    </ResponseField>
+
+    <ResponseField name="request_id" type="string" required>
+      A unique identifier for this specific API request. Include this value when contacting Google support — it allows the support team to trace the exact request and investigate the issue.
+
+      **Example:** `"req_01HXYZ9876FEDCBA"`
+    </ResponseField>
+
+    <ResponseField name="details" type="array">
+      An optional array of objects providing granular information about each individual issue. Present on `400` and `422` responses where multiple fields may be invalid simultaneously. May be absent on `5xx` or authentication errors.
+
+      <Expandable title="details item fields">
+        <ResponseField name="field" type="string">
+          The name of the request parameter or body field that caused the issue.
+
+          **Example:** `"email"`
+        </ResponseField>
+
+        <ResponseField name="issue" type="string">
+          A machine-readable code describing what is wrong with the field value.
+
+          **Example:** `"invalid_format"`, `"required"`, `"too_long"`
+        </ResponseField>
+
+        <ResponseField name="received" type="string">
+          The value that was received, to help you quickly identify typos or mismatched types.
+
+          **Example:** `"not-an-email"`
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## HTTP Status Codes
+
+The following table summarizes every status code the Google REST API returns.
+
+| Code  | Name                    | Meaning                                                               |
+|-------|-------------------------|-----------------------------------------------------------------------|
+| `200` | OK                      | The request succeeded and the response body contains the result.     |
+| `201` | Created                 | A new resource was successfully created.                              |
+| `400` | Bad Request             | The request was malformed, missing required fields, or had invalid values. |
+| `401` | Unauthorized            | The API key is missing, invalid, or revoked.                         |
+| `403` | Forbidden               | The API key is valid but lacks the required scope for this operation. |
+| `404` | Not Found               | The requested resource does not exist or has been deleted.            |
+| `422` | Unprocessable Entity    | The request was well-formed but contained semantic errors.            |
+| `429` | Too Many Requests       | Your key has exceeded its rate limit.                                 |
+| `500` | Internal Server Error   | An unexpected error occurred on Google's servers.                    |
+| `503` | Service Unavailable     | Google's API is temporarily offline or under maintenance.            |
+
+---
+
+### 200 OK
+
+The request completed successfully. The response body contains the resource or result you requested.
+
+<Info>
+  `GET`, `PUT`, and `PATCH` requests return `200` on success. Use `201 Created` to distinguish newly created resources from updated or retrieved ones.
+</Info>
+
+**Common causes:** Standard successful response to any read or update operation.
+
+**Recommended action:** Parse the response body and proceed with your application logic.
+
+---
+
+### 201 Created
+
+A new resource was successfully created as a result of a `POST` request. The response body contains the full representation of the newly created resource, and the `Location` response header contains the URL you can use to retrieve it going forward.
+
+**Common causes:** Successful `POST` to any collection endpoint (e.g., `POST /v1/users`, `POST /v1/resources`).
+
+**Recommended action:** Store the `id` from the response body or the URL from the `Location` header for future requests.
+
+---
+
+### 400 Bad Request
+
+The server could not process the request because it was malformed. This is almost always a client-side issue.
+
+**Common causes:**
+- A required field is missing from the request body
+- A field value is the wrong type (e.g., a string where an integer is expected)
+- A JSON body is syntactically invalid
+- A query parameter has an unsupported value
+
+**Recommended action:** Inspect the `details` array in the error response to identify exactly which fields failed validation. Fix the request before retrying.
+
+---
+
+### 401 Unauthorized
+
+The request did not include a valid API key, or the provided key has been revoked.
+
+**Common causes:**
+- The `Authorization` header is missing entirely
+- The key string is malformed or contains extra whitespace
+- The key was revoked from the Developer Dashboard
+- The key belongs to a different environment (e.g., a staging key used against the production API)
+
+**Recommended action:** Verify that your `Authorization` header is correctly formatted as `Bearer YOUR_API_KEY`. Confirm the key is active in the [Developer Dashboard](https://dashboard.google.com/api-keys). See [Authentication](/api-reference/authentication) for full details.
+
+---
+
+### 403 Forbidden
+
+The API key is valid and active, but it does not have the necessary scope to perform this operation.
+
+**Common causes:**
+- Attempting a write operation with a read-only key
+- Accessing an administrative endpoint with a non-admin key
+- Using a key scoped to `users:read` to call a `resources:write` endpoint
+
+**Recommended action:** Review the required scopes documented on the endpoint's reference page, then update your API key's scopes in the [Developer Dashboard](https://dashboard.google.com/api-keys). See [Scopes and Permissions](/api-reference/authentication#scopes-and-permissions) for the full scope list.
+
+---
+
+### 404 Not Found
+
+The resource identified by the URL or ID in your request does not exist on the server.
+
+**Common causes:**
+- The resource ID is incorrect or belongs to a different account
+- The resource was deleted before this request was made
+- A typo in the endpoint path (e.g., `/resouces` instead of `/resources`)
+
+**Recommended action:** Double-check the resource ID and endpoint path. If you recently deleted the resource, confirm the deletion is intentional. If you believe the resource should exist, verify it in the dashboard.
+
+---
+
+### 422 Unprocessable Entity
+
+The request was syntactically valid but could not be processed because of a semantic or business-logic constraint.
+
+**Common causes:**
+- Creating a user with an email address that already exists in the system
+- Setting a configuration value that conflicts with an existing setting
+- Referencing a related resource that is in an incompatible state
+
+**Recommended action:** Read the `error.message` and `error.details` fields carefully. Unlike `400` errors, these often require a change in your application's logic rather than just fixing a formatting issue.
+
+---
+
+### 429 Too Many Requests
+
+Your API key has sent more requests than the allowed rate limit permits in the current time window.
+
+**Common causes:**
+- A burst of requests in a tight loop without throttling
+- A misconfigured retry mechanism that retries too aggressively on failures
+- Reaching the daily request cap
+
+**Recommended action:** Read the `Retry-After` response header and wait that many seconds before retrying. Implement exponential backoff with jitter for sustained workloads. If you routinely hit the daily cap, contact [Google Sales](https://google.com/contact/sales) to discuss a higher-tier plan.
+
+---
+
+### 500 Internal Server Error
+
+An unexpected error occurred within Google's infrastructure while processing your request.
+
+**Common causes:**
+- A transient bug or edge case on the server side
+- A backend dependency temporarily unavailable
+- An infrastructure event affecting the API
+
+**Recommended action:** Retry the request using exponential backoff. If the error persists for more than a few minutes, check the [Google Status Page](https://status.google.com) for ongoing incidents. Include the `request_id` from the error response when opening a support ticket.
+
+---
+
+### 503 Service Unavailable
+
+The Google API is temporarily unable to handle requests. This is typically a short-lived condition.
+
+**Common causes:**
+- Scheduled maintenance window
+- An unplanned infrastructure outage
+- The service is overloaded and shedding load
+
+**Recommended action:** Do not retry immediately. Wait at least 30 seconds, then retry with exponential backoff. Monitor the [Google Status Page](https://status.google.com) for updates on estimated resolution time.
+
+---
+
+## Handling Errors in JavaScript
+
+The following example shows a robust error-handling pattern for JavaScript applications. It inspects the status code, logs the `request_id` for traceability, surfaces validation details when present, and implements exponential backoff for retryable errors.
+
+```javascript title="api-client.js"
+const MAX_RETRIES = 4;
+const BASE_DELAY_MS = 1000;
+
+async function googleRequest(url, options = {}, attempt = 0) {
+  const apiKey = process.env.GOOGLE_API_KEY;
+
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      ...options.headers,
+    },
+  });
+
+  // Success — return the parsed body
+  if (response.ok) {
+    return response.json();
+  }
+
+  // Parse the error body
+  const errorBody = await response.json().catch(() => null);
+  const error = errorBody?.error ?? {};
+  const { code, message, status, request_id, details } = error;
+
+  // Log the request ID for every error so it can be found in support tickets
+  console.error(`[Google API] Error ${status} (request_id: ${request_id})`);
+  console.error(`[Google API] ${code}: ${message}`);
+
+  // Surface per-field validation details
+  if (details && details.length > 0) {
+    details.forEach(({ field, issue, received }) => {
+      console.error(`  Field "${field}": ${issue} (received: ${received})`);
+    });
+  }
+
+  // --- Non-retryable client errors ---
+  if (status === 400) {
+    throw Object.assign(new Error(`Bad request: ${message}`), { code, details, request_id });
+  }
+
+  if (status === 401) {
+    throw Object.assign(new Error('Invalid or missing API key'), { code, request_id });
+  }
+
+  if (status === 403) {
+    throw Object.assign(new Error(`Forbidden — insufficient scope: ${message}`), { code, request_id });
+  }
+
+  if (status === 404) {
+    throw Object.assign(new Error(`Resource not found: ${url}`), { code, request_id });
+  }
+
+  if (status === 422) {
+    throw Object.assign(new Error(`Unprocessable entity: ${message}`), { code, details, request_id });
+  }
+
+  // --- Retryable errors: 429, 500, 503 ---
+  if ([429, 500, 503].includes(status)) {
+    if (attempt >= MAX_RETRIES) {
+      throw Object.assign(
+        new Error(`Max retries reached after ${MAX_RETRIES} attempts. Last error: ${message}`),
+        { code, request_id }
+      );
+    }
+
+    // Respect Retry-After for 429; otherwise use exponential backoff
+    const retryAfterHeader = response.headers.get('Retry-After');
+    const delayMs = retryAfterHeader
+      ? parseInt(retryAfterHeader, 10) * 1000
+      : BASE_DELAY_MS * Math.pow(2, attempt) + Math.random() * 500;
+
+    console.warn(`[Google API] Retryable error ${status}. Retrying in ${Math.round(delayMs)}ms (attempt ${attempt + 1}/${MAX_RETRIES})`);
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+
+    return googleRequest(url, options, attempt + 1);
+  }
+
+  // Unknown error
+  throw Object.assign(new Error(`Unexpected API error: ${status}`), { code, request_id });
+}
+
+// --- Usage examples ---
+
+// Fetch a user — handles 404 if the user doesn't exist
+try {
+  const user = await googleRequest('https://api.google.com/v1/users/usr_01HXYZ1234ABCDEF');
+  console.log('User:', user);
+} catch (err) {
+  if (err.code === 'not_found') {
+    console.log('User does not exist');
+  } else {
+    throw err;
+  }
+}
+
+// Create a resource — handles validation errors
+try {
+  const resource = await googleRequest('https://api.google.com/v1/resources', {
+    method: 'POST',
+    body: JSON.stringify({ name: 'my-bucket', region: 'us-central1' }),
+  });
+  console.log('Created resource:', resource.id);
+} catch (err) {
+  if (err.code === 'validation_error') {
+    console.error('Fix these fields:', err.details);
+  } else {
+    throw err;
+  }
+}
+```
+
+<Tip>
+  Store the `request_id` value in your application logs alongside your own trace IDs. When you contact Google support about an API error, providing the `request_id` dramatically speeds up the investigation by allowing the support team to trace the exact request on their end.
+</Tip>

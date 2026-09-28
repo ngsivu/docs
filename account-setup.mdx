@@ -1,0 +1,121 @@
+---
+title: 'Google Account Setup: Profile, Billing, and Team Roles'
+sidebarTitle: 'Account Setup'
+description: 'Configure your Google account, complete your profile, set up billing, and invite team members to get your workspace ready for production use.'
+---
+
+Before you start building with Google's APIs or rolling out Google Workspace to your organization, a few setup steps will save you significant time later. This guide walks you through creating and verifying your account, completing your profile, attaching a billing account, and adding the colleagues who'll be working alongside you. A well-configured account gives you accurate audit logs, predictable costs, and the right access controls from day one.
+
+<Steps>
+  <Step title="Create and verify your Google account">
+    If you don't already have a Google account, go to [accounts.google.com/signup](https://accounts.google.com/signup) and complete registration. Use a company email address for any business or team use — this makes it straightforward to transfer ownership if your circumstances change.
+
+    After registration, Google sends a verification email. Open it and click **Verify email**. Email verification is required before you can enable billing or create service accounts.
+
+    <Tip>
+      Enable **2-Step Verification** immediately after creating your account. Go to **My Account → Security → 2-Step Verification** and follow the prompts. For team and production accounts, consider enrolling in the [Advanced Protection Program](https://landing.google.com/advancedprotection/) for the strongest available account security.
+    </Tip>
+  </Step>
+
+  <Step title="Complete your profile and organizational details">
+    A complete profile helps Google route support requests correctly and ensures billing documents show the right entity name.
+
+    1. Go to [myaccount.google.com](https://myaccount.google.com) and click **Personal info**.
+    2. Add your full name, a profile photo, and a recovery phone number.
+    3. If you're setting up a **Google Cloud** organization, navigate to the [Cloud Console](https://console.cloud.google.com) and go to **IAM & Admin → Settings**. Enter your organization's display name and contact email.
+    4. If you're configuring **Google Workspace**, open the [Admin Console](https://admin.google.com) and complete the **Company profile** under **Account → Account settings**.
+
+    <Note>
+      Google Workspace accounts are managed by a domain administrator. If your company's domain is already registered with Workspace, ask your IT administrator to provision your user account rather than creating a separate consumer account.
+    </Note>
+  </Step>
+
+  <Step title="Set up billing">
+    Most Google Cloud services bill on a pay-as-you-go basis, and some APIs require an active billing account even within free-tier limits. Set up billing before you enable APIs in a production project.
+
+    1. In the [Cloud Console](https://console.cloud.google.com), open the navigation menu and select **Billing**.
+    2. Click **Manage billing accounts → Create account**.
+    3. Enter your billing account name, choose your country, and click **Continue**.
+    4. Add a credit or debit card (or a bank account, depending on your country) and confirm.
+    5. Link the billing account to your project: go to **Billing → My projects**, find your project, and click **Change billing**.
+
+    **Set a budget alert** so you're notified before spending reaches a threshold you're comfortable with:
+
+    1. In **Billing**, select your billing account and click **Budgets & alerts → Create budget**.
+    2. Set a target amount and configure alert thresholds at 50%, 90%, and 100% of your budget.
+    3. Optionally connect a Pub/Sub topic to trigger automated responses when a threshold is crossed.
+
+    <Warning>
+      Deleting a project immediately stops billing for that project, but some resources (like reserved IP addresses) continue to accrue charges until they're explicitly released. Review all resource inventories before deleting a project.
+    </Warning>
+  </Step>
+
+  <Step title="Invite team members and assign roles">
+    Google Cloud uses **Identity and Access Management (IAM)** to control who can do what within your project or organization. Assign the most restrictive role that still lets each person do their job — this is the principle of least privilege.
+
+    **To add a team member to a Cloud project:**
+
+    1. In the Cloud Console, go to **IAM & Admin → IAM**.
+    2. Click **Grant access**.
+    3. Enter the person's Google account email address.
+    4. Select one or more roles from the dropdown. Common starting roles are listed in the table below.
+    5. Click **Save**.
+
+    **To add users in Google Workspace:**
+
+    1. Open the [Admin Console](https://admin.google.com) and go to **Directory → Users**.
+    2. Click **Add new user**, fill in the user's name and email, and click **Add new user** to confirm.
+    3. The new user receives an invitation email with temporary credentials.
+
+    <Tip>
+      Use **groups** (Google Groups or Cloud Identity groups) instead of adding individuals directly to IAM policies. Managing group membership is much easier than updating dozens of individual IAM bindings when someone joins or leaves your team.
+    </Tip>
+  </Step>
+</Steps>
+
+## Account settings reference
+
+The table below lists the most important account and project settings you should review during initial setup.
+
+| Setting | Where to find it | Recommended action |
+|---|---|---|
+| 2-Step Verification | My Account → Security | Enable immediately; use a hardware key for admin accounts |
+| Recovery email & phone | My Account → Security | Add both so you can recover access if locked out |
+| Billing account | Cloud Console → Billing | Create before enabling paid APIs |
+| Budget alerts | Cloud Console → Billing → Budgets & alerts | Set alerts at 50%, 90%, and 100% of your expected spend |
+| IAM roles | Cloud Console → IAM & Admin → IAM | Follow least-privilege; prefer predefined roles over primitive ones |
+| Organization policies | Cloud Console → IAM & Admin → Organization Policies | Restrict resource locations and allowed service account actions |
+| Audit logs | Cloud Console → Logging → Logs Explorer | Enable Data Access audit logs for sensitive APIs |
+| OAuth consent screen | APIs & Services → OAuth consent screen | Configure before creating OAuth 2.0 client IDs |
+| API key restrictions | APIs & Services → Credentials | Restrict each key to specific APIs and referrers or IP ranges |
+| Workspace Admin Console | admin.google.com | Set password policies, 2SV enforcement, and app access controls |
+
+## Recommended initial configuration
+
+<Tip>
+  After completing the steps above, work through this checklist before you start building:
+  - ✅ Email address verified
+  - ✅ 2-Step Verification enabled on all admin accounts
+  - ✅ Billing account created and linked to your project
+  - ✅ Budget alerts configured
+  - ✅ Team members added with appropriately scoped IAM roles
+  - ✅ API key restrictions set on all credentials
+  - ✅ Audit logging enabled
+</Tip>
+
+## Related pages
+
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="bolt" href="/quickstart">
+    Generate your first API key and make a live API call once your account is configured.
+  </Card>
+  <Card title="Authentication Guide" icon="lock" href="/guides/authentication">
+    Learn about OAuth 2.0 flows, service accounts, and credential management best practices.
+  </Card>
+  <Card title="Configuration Guide" icon="sliders" href="/guides/configuration">
+    Dive into advanced project, API, and Workspace configuration options.
+  </Card>
+  <Card title="Troubleshooting" icon="wrench" href="/troubleshooting">
+    Resolve common account, billing, and authentication issues.
+  </Card>
+</CardGroup>

@@ -1,0 +1,307 @@
+---
+title: 'Configure Your Google Integration Settings and Options'
+sidebarTitle: 'Configuration'
+description: 'Customize API settings, rate limits, response formats, and locale options to tailor your Google integration to your application requirements.'
+---
+
+A Google integration that works in development may behave differently in production if it is not configured correctly for your environment, region, and performance requirements. This guide explains every major configuration surface — API settings, rate limits, response formats, and locale options — and shows you how to apply them both from the Google Cloud Console dashboard and programmatically through the API. Use the configuration options here to make your integration faster, more predictable, and easier to maintain.
+
+## API Settings
+
+API settings control which services your credentials can access and how they behave globally. You configure most of these in the Google Cloud Console under **APIs & Services**, but you can also override individual options at the request level.
+
+### Configure API Settings
+
+<Tabs>
+  <Tab title="Dashboard">
+    1. Sign in to the [Google Cloud Console](https://console.cloud.google.com).
+    2. Select your project from the project selector at the top of the page.
+    3. Navigate to **APIs & Services → Enabled APIs & services**.
+    4. Click the name of an enabled API to open its settings panel.
+    5. Adjust the options (quotas, data regions, etc.) and click **Save**.
+
+    Changes made in the dashboard apply within a few minutes. You do not need to redeploy your application.
+  </Tab>
+  <Tab title="API">
+    Use the Service Usage API to enable, disable, and inspect API settings programmatically. This is useful for infrastructure-as-code workflows.
+
+    ```bash title="Enable an API via REST"
+    curl -X POST \
+      "https://serviceusage.googleapis.com/v1/projects/YOUR_PROJECT_ID/services/drive.googleapis.com:enable" \
+      -H "Authorization: Bearer YOUR_API_KEY" \
+      -H "Content-Type: application/json"
+    ```
+
+    ```javascript title="enable-api.js"
+    import 'dotenv/config';
+    import axios from 'axios';
+
+    const projectId = process.env.GOOGLE_PROJECT_ID;
+    const apiKey    = process.env.GOOGLE_API_KEY;
+    const service   = 'drive.googleapis.com';
+
+    await axios.post(
+      `https://serviceusage.googleapis.com/v1/projects/${projectId}/services/${service}:enable`,
+      {},
+      { headers: { Authorization: `Bearer ${apiKey}` } }
+    );
+
+    console.log(`${service} enabled for project ${projectId}`);
+    ```
+
+    ```python title="enable_api.py"
+    import os
+    import requests
+    from dotenv import load_dotenv
+
+    load_dotenv()
+
+    project_id = os.getenv("GOOGLE_PROJECT_ID")
+    api_key    = os.getenv("GOOGLE_API_KEY")
+    service    = "drive.googleapis.com"
+
+    response = requests.post(
+        f"https://serviceusage.googleapis.com/v1/projects/{project_id}/services/{service}:enable",
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+    response.raise_for_status()
+    print(f"{service} enabled for project {project_id}")
+    ```
+  </Tab>
+</Tabs>
+
+## Rate Limits
+
+Rate limits prevent any single integration from monopolising shared infrastructure. Google enforces limits per API, per project, and in some cases per user. Understanding these limits — and configuring your client to stay within them — keeps your integration stable.
+
+### View and Adjust Quotas
+
+<Tabs>
+  <Tab title="Dashboard">
+    1. Go to **APIs & Services → Quotas** in the Cloud Console.
+    2. Use the filter bar to search for the specific API and quota metric you want to review.
+    3. Select the checkbox next to a metric and click **Edit quotas** to request an increase.
+    4. Fill in the request form and submit. Quota increases are reviewed within 2–3 business days.
+  </Tab>
+  <Tab title="API">
+    Query current quota usage with the Service Usage API:
+
+    ```bash title="List quotas via REST"
+    curl -X GET \
+      "https://serviceusage.googleapis.com/v1beta1/projects/YOUR_PROJECT_ID/services/drive.googleapis.com/consumerQuotaMetrics" \
+      -H "Authorization: Bearer YOUR_API_KEY"
+    ```
+
+    ```javascript title="check-quota.js"
+    import 'dotenv/config';
+    import axios from 'axios';
+
+    const projectId = process.env.GOOGLE_PROJECT_ID;
+    const service   = 'drive.googleapis.com';
+
+    const { data } = await axios.get(
+      `https://serviceusage.googleapis.com/v1beta1/projects/${projectId}/services/${service}/consumerQuotaMetrics`,
+      { headers: { Authorization: `Bearer ${process.env.GOOGLE_API_KEY}` } }
+    );
+
+    data.metrics.forEach(({ name, consumerQuotaLimits }) => {
+      console.log(`Metric: ${name}`);
+      consumerQuotaLimits.forEach(({ unit, values }) => {
+        console.log(`  Unit: ${unit}`, values);
+      });
+    });
+    ```
+  </Tab>
+</Tabs>
+
+Implement a client-side rate limiter using a token-bucket or leaky-bucket algorithm to avoid hitting the server-side limits at all:
+
+```javascript title="rate-limiter.js"
+// Simple token-bucket rate limiter — allows up to `maxRequests` per `interval` ms.
+class RateLimiter {
+  constructor(maxRequests, intervalMs) {
+    this.maxRequests = maxRequests;
+    this.intervalMs  = intervalMs;
+    this.tokens      = maxRequests;
+    this.lastRefill  = Date.now();
+  }
+
+  async acquire() {
+    const now   = Date.now();
+    const delta = now - this.lastRefill;
+
+    if (delta >= this.intervalMs) {
+      this.tokens     = this.maxRequests;
+      this.lastRefill = now;
+    }
+
+    if (this.tokens <= 0) {
+      const wait = this.intervalMs - delta;
+      await new Promise((resolve) => setTimeout(resolve, wait));
+      this.tokens     = this.maxRequests;
+      this.lastRefill = Date.now();
+    }
+
+    this.tokens -= 1;
+  }
+}
+
+// Allow 100 requests per second
+const limiter = new RateLimiter(100, 1000);
+
+export async function throttledGet(client, url, options = {}) {
+  await limiter.acquire();
+  return client.get(url, options);
+}
+```
+
+## Response Formats
+
+Control the shape and size of API responses to reduce bandwidth and simplify parsing in your application.
+
+### Using the `fields` Parameter
+
+The `fields` parameter is the most powerful tool for trimming response payloads. Specify only the fields you need using a comma-separated list:
+
+```bash title="Partial response with fields"
+curl -X GET \
+  "https://www.googleapis.com/drive/v3/files?fields=files(id,name,mimeType,modifiedTime)&key=YOUR_API_KEY"
+```
+
+```javascript title="partial-response.js"
+import googleClient from './client.js';
+
+const { data } = await googleClient.get('/drive/v3/files', {
+  params: {
+    fields: 'files(id,name,mimeType,modifiedTime),nextPageToken',
+    orderBy: 'modifiedTime desc',
+    pageSize: 50,
+  },
+});
+
+console.log(`Found ${data.files.length} files`);
+```
+
+### Pagination
+
+All list endpoints return paginated results. Use `pageToken` to iterate through pages:
+
+```javascript title="paginate.js"
+import googleClient from './client.js';
+
+async function* allFiles(query) {
+  let pageToken;
+  do {
+    const { data } = await googleClient.get('/drive/v3/files', {
+      params: {
+        q: query,
+        pageSize: 100,
+        fields: 'files(id,name),nextPageToken',
+        pageToken,
+      },
+    });
+
+    yield* data.files;
+    pageToken = data.nextPageToken;
+  } while (pageToken);
+}
+
+for await (const file of allFiles("mimeType = 'application/pdf'")) {
+  console.log(file.id, file.name);
+}
+```
+
+<Note>
+  Setting `pageSize` to a large value does not guarantee that many results per call — Google may return fewer items based on internal limits. Always check for `nextPageToken` rather than assuming a single request returns all data.
+</Note>
+
+## Locale and Region Settings
+
+Configure the language and region of API responses to match your users' expectations.
+
+<Tabs>
+  <Tab title="Dashboard">
+    1. Open the [Cloud Console](https://console.cloud.google.com) and go to **IAM & Admin → Settings**.
+    2. Under **Organizational policies**, use the `gcp.resourceLocations` constraint to restrict where data is stored and processed.
+    3. For per-API locale settings (such as language in search results), refer to the individual API's settings panel under **APIs & Services → Enabled APIs**.
+  </Tab>
+  <Tab title="API">
+    Pass locale and region parameters per request rather than at the project level for maximum flexibility:
+
+    ```javascript title="locale-request.js"
+    import googleClient from './client.js';
+
+    const { data } = await googleClient.get('/customsearch/v1', {
+      params: {
+        q:    'climate change',
+        hl:   'fr',      // Interface language: French
+        gl:   'FR',      // Geolocation: France
+        lr:   'lang_fr', // Restrict results to French-language pages
+        num:  10,
+      },
+    });
+
+    data.items?.forEach((item) => console.log(item.title, item.link));
+    ```
+
+    ```python title="locale_request.py"
+    import os
+    import requests
+    from dotenv import load_dotenv
+
+    load_dotenv()
+
+    response = requests.get(
+        "https://www.googleapis.com/customsearch/v1",
+        params={
+            "q":   "climate change",
+            "hl":  "fr",       # Interface language: French
+            "gl":  "FR",       # Geolocation: France
+            "lr":  "lang_fr",  # Restrict to French-language results
+            "num": 10,
+            "key": os.getenv("GOOGLE_API_KEY"),
+        },
+    )
+    response.raise_for_status()
+    for item in response.json().get("items", []):
+        print(item["title"], item["link"])
+    ```
+  </Tab>
+</Tabs>
+
+## Configuration Reference
+
+The table below lists the most commonly used request-level configuration parameters across Google APIs, their defaults, and allowed values.
+
+| Parameter | Description | Default | Allowed Values |
+|---|---|---|---|
+| `fields` | Limits the fields returned in the response | All fields | Comma-separated field paths (e.g. `id,name`) |
+| `pageSize` / `maxResults` | Number of items per page | `10`–`100` (varies by API) | Integer, up to the API's maximum |
+| `pageToken` | Token for fetching the next page | — | Opaque string from previous response |
+| `orderBy` | Sort order for list results | API default | Field name, optionally with `desc` suffix |
+| `hl` | Interface language for human-readable strings | `en` | BCP-47 language tag (e.g. `fr`, `ja`, `pt-BR`) |
+| `gl` | Country/geolocation bias for results | Inferred from IP | ISO 3166-1 alpha-2 country code (e.g. `US`, `DE`) |
+| `prettyPrint` | Format JSON response with indentation | `true` | `true` \| `false` |
+| `quotaUser` | Arbitrary string to identify the end user for per-user quota | — | Max 40 characters, URL-safe |
+| `alt` | Response format | `json` | `json` \| `media` \| `proto` (API-specific) |
+
+<Warning>
+  Setting `prettyPrint=true` increases response size. In production, set it to `false` to reduce bandwidth consumption, especially on high-volume endpoints.
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="First Integration" icon="rocket" href="/guides/first-integration">
+    Build a complete working integration applying these configuration options from scratch.
+  </Card>
+  <Card title="Authentication" icon="key" href="/guides/authentication">
+    Manage API keys and learn how credential restrictions interact with configuration.
+  </Card>
+  <Card title="Webhooks" icon="bolt" href="/guides/webhooks">
+    Configure webhook endpoints to receive push notifications instead of polling.
+  </Card>
+  <Card title="API Reference" icon="code" href="/api-reference/introduction">
+    See every available endpoint with its full parameter and response schema.
+  </Card>
+</CardGroup>
